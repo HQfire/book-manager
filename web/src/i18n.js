@@ -1,0 +1,144 @@
+import { ref } from 'vue'
+
+const STORAGE_KEY = 'bm_lang'
+
+const messages = {
+  zh: {
+    app_title: '图书管理',
+    subtitle: '登录后管理你的藏书',
+    login: '登录',
+    register: '注册',
+    username: '用户名',
+    password: '密码',
+    please_wait: '请稍候...',
+    required_account: '请输入用户名和密码',
+    logout: '退出登录',
+    search: '搜索',
+    new_book: '新增图书',
+    col_title: '书名',
+    col_author: '作者',
+    col_desc: '简介',
+    col_updated: '更新时间',
+    col_actions: '操作',
+    edit: '编辑',
+    delete: '删除',
+    empty: '暂无图书',
+    prev: '上一页',
+    next: '下一页',
+    pagination: '第 {page} / {totalPages} 页 · 共 {total} 条',
+    modal_new: '新增图书',
+    modal_edit: '编辑图书',
+    cancel: '取消',
+    save: '保存',
+    title_required: '书名不能为空',
+    created: '图书已创建',
+    updated: '图书已更新',
+    deleted: '图书已删除',
+    confirm_delete: '确认删除图书「{title}」？',
+    settings: '设置',
+    language: '语言',
+    tab_general: '通用',
+    tab_system: '系统',
+    tab_api: '接口',
+    search: '搜索',
+    preferences: '偏好设置',
+    system_info: '系统信息',
+    version: '版本',
+    backend: '后端地址',
+    frontend: '前端框架',
+    tech_stack: '技术栈',
+    health: '健康检查',
+    health_up: '正常',
+    health_down: '异常',
+    health_checking: '检查中...',
+    api_interfaces: '接口清单',
+    col_method: '方法',
+    col_path: '路径',
+    col_module: '模块',
+    module_auth: '认证',
+    module_book: '图书',
+    about: '关于',
+    close: '关闭',
+  },
+  en: {
+    app_title: 'Book Manager',
+    subtitle: 'Sign in to manage your books',
+    login: 'Login',
+    register: 'Register',
+    username: 'Username',
+    password: 'Password',
+    please_wait: 'Please wait...',
+    required_account: 'username and password are required',
+    logout: 'Logout',
+    search: 'Search',
+    new_book: 'New book',
+    col_title: 'Title',
+    col_author: 'Author',
+    col_desc: 'Description',
+    col_updated: 'Updated',
+    col_actions: 'Actions',
+    edit: 'Edit',
+    delete: 'Delete',
+    empty: 'No books yet',
+    prev: 'Prev',
+    next: 'Next',
+    pagination: 'Page {page} / {totalPages} · Total {total}',
+    modal_new: 'New book',
+    modal_edit: 'Edit book',
+    cancel: 'Cancel',
+    save: 'Save',
+    title_required: 'title is required',
+    created: 'book created',
+    updated: 'book updated',
+    deleted: 'book deleted',
+    confirm_delete: 'Delete book "{title}"?',
+    settings: 'Settings',
+    language: 'Language',
+    tab_general: 'General',
+    tab_system: 'System',
+    tab_api: 'API',
+    search: 'Search',
+    preferences: 'Preferences',
+    system_info: 'System Info',
+    version: 'Version',
+    backend: 'Backend',
+    frontend: 'Frontend',
+    tech_stack: 'Tech Stack',
+    health: 'Health',
+    health_up: 'UP',
+    health_down: 'DOWN',
+    health_checking: 'Checking...',
+    api_interfaces: 'API Interfaces',
+    col_method: 'Method',
+    col_path: 'Path',
+    col_module: 'Module',
+    module_auth: 'Auth',
+    module_book: 'Book',
+    about: 'About',
+    close: 'Close',
+  },
+}
+
+const saved = localStorage.getItem(STORAGE_KEY)
+const locale = ref(messages[saved] ? saved : 'zh')
+
+export function t(key, params) {
+  const fallback = messages.en[key] ?? key
+  const str = messages[locale.value][key] ?? fallback
+  if (!params) return str
+  return str.replace(/\{(\w+)\}/g, (_, name) => (params[name] ?? ''))
+}
+
+export function getLocale() {
+  return locale.value
+}
+
+export function setLocale(code) {
+  locale.value = code
+  localStorage.setItem(STORAGE_KEY, code)
+}
+
+export const LANG_OPTIONS = [
+  { code: 'zh', label: '中文' },
+  { code: 'en', label: 'English' },
+]

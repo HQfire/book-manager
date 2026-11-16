@@ -14,7 +14,7 @@
 - Spring Boot Actuator（健康检查）
 - SpringDoc OpenAPI / Swagger UI
 - Lombok、Spring Boot Validation
-- 前端：Vue 3 + Vite（独立工程 `../book-manager-web`）
+- 前端：Vue 3 + Vite（仓库内 `web/` 子目录）
 
 ## 环境要求
 
@@ -46,15 +46,15 @@ mvn spring-boot:run
 
 ## 启动前端
 
-前端为独立工程，位于 `D:\Code\book-manager-web`：
+前端工程位于仓库内 `web/` 子目录：
 
 ```
-cd D:\Code\book-manager-web
+cd web
 npm install
 npm run dev
 ```
 
-浏览器打开 `http://localhost:5173`，Vite 代理 `/api/**` 到后端 8080。
+浏览器打开 `http://localhost:5173`，Vite 代理 `/api/**`、`/actuator/**` 到后端 8080。
 
 ## 接口清单
 
@@ -102,6 +102,7 @@ npm run dev
 ## 目录结构
 
 ```
+web/            # Vue 3 + Vite 前端工程
 src/main/java/org/example/bookmanager
 ├── common      # 统一返回、分页结果、业务异常、全局异常处理
 ├── config      # 拦截器注册、鉴权拦截器
