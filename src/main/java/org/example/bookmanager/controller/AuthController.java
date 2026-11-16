@@ -3,6 +3,7 @@ package org.example.bookmanager.controller;
 import jakarta.validation.Valid;
 import org.example.bookmanager.common.Result;
 import org.example.bookmanager.dto.LoginRequest;
+import org.example.bookmanager.dto.LoginResponse;
 import org.example.bookmanager.dto.RegisterRequest;
 import org.example.bookmanager.dto.UserDTO;
 import org.example.bookmanager.service.UserAccountService;
@@ -27,7 +28,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public Result<UserDTO> login(@Valid @RequestBody LoginRequest request) {
+    public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return Result.ok(userAccountService.login(request));
     }
 }

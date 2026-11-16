@@ -3,24 +3,34 @@ package org.example.bookmanager.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.example.bookmanager.common.BizException;
 import org.example.bookmanager.dto.LoginRequest;
+import org.example.bookmanager.dto.LoginResponse;
 import org.example.bookmanager.dto.RegisterRequest;
 import org.example.bookmanager.dto.UserDTO;
 import org.example.bookmanager.entity.UserAccount;
 import org.example.bookmanager.mapper.UserAccountMapper;
 import org.example.bookmanager.service.UserAccountService;
+import org.example.bookmanager.util.JwtUtil;
 import org.example.bookmanager.util.PasswordUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UserAccountServiceImpl implements UserAccountService {
 
-    private final UserAccountMapper userAccountMapper;
+    private static final Logger log = LoggerFactory.getLogger(UserAccountServiceImpl.class);
 
-    public UserAccountServiceImpl(UserAccountMapper userAccountMapper) {
+    private final UserAccountMapper userAccountMapper;
+    private final JwtUtil jwtUtil;
+
+    public UserAccountServiceImpl(UserAccountMapper userAccountMapper, JwtUtil jwtUtil) {
         this.userAccountMapper = userAccountMapper;
+        this.jwtUtil = jwtUtil;
     }
 
     @Override
+    @Transactional
     public UserDTO register(RegisterRequest request) {
         QueryWrapper<UserAccount> wrapper = new QueryWrapper<>();
         wrapper.eq("username", request.getUsername());
@@ -31,23 +41,22 @@ public class UserAccountServiceImpl implements UserAccountService {
 
         UserAccount user = new UserAccount();
         user.setUsername(request.getUsername());
-        user.setPassword(PasswordUtil.sha256Hex(request.getPassword()));
+        user.setPassword(PasswordUtil.hash(request.getPassword()));
         userAccountMapper.insert(user);
+        log.info("user registered: id={}, username={}", user.getId(), user.getUsername());
         return new UserDTO(user.getId(), user.getUsername());
     }
 
     @Override
-    public UserDTO login(LoginRequest request) {
+    public LoginResponse login(LoginRequest request) {
         QueryWrapper<UserAccount> wrapper = new QueryWrapper<>();
         wrapper.eq("username", request.getUsername());
         UserAccount user = userAccountMapper.selectOne(wrapper);
-        if (user == null) {
+        if (user == null || !PasswordUtil.matches(request.getPassword(), user.getPassword())) {
+            log.warn("login failed: username={}", request.getUsername());
             throw new BizException(401, "invalid username or password");
         }
-        String hash = PasswordUtil.sha256Hex(request.getPassword());
-        if (!hash.equals(user.getPassword())) {
-            throw new BizException(401, "invalid username or password");
-        }
-        return new UserDTO(user.getId(), user.getUsername());
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+        return new LoginResponse(token, user.getId(), user.getUsername());
     }
 }
