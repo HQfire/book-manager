@@ -31,6 +31,8 @@ const detailBook = ref(null)
 const detailReader = ref(null)
 const coverUrl = ref('')
 const readerOpen = ref(false)
+const readerBook = ref(null)
+const rowCovers = ref({})
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
@@ -46,10 +48,23 @@ async function loadBooks() {
     })
     books.value = data.records || []
     total.value = data.total || 0
+    loadRowCovers()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
+  }
+}
+
+async function loadRowCovers() {
+  Object.values(rowCovers.value).forEach((url) => URL.revokeObjectURL(url))
+  rowCovers.value = {}
+  for (const book of books.value) {
+    try {
+      rowCovers.value[book.id] = await fetchCoverBlob(book.id)
+    } catch {
+      rowCovers.value[book.id] = ''
+    }
   }
 }
 
@@ -198,11 +213,24 @@ async function onTextPick(event) {
 
 function openReader() {
   if (!detailReader.value) return
+  readerBook.value = detailBook.value
   readerOpen.value = true
+}
+
+async function readBook(book) {
+  error.value = ''
+  try {
+    detailReader.value = await api.reader(book.id)
+    readerBook.value = book
+    readerOpen.value = true
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 onUnmounted(() => {
   if (coverUrl.value) URL.revokeObjectURL(coverUrl.value)
+  Object.values(rowCovers.value).forEach((url) => URL.revokeObjectURL(url))
 })
 
 onMounted(loadBooks)
@@ -235,6 +263,7 @@ onMounted(loadBooks)
       <table>
         <thead>
           <tr>
+            <th>{{ t('col_cover') }}</th>
             <th>{{ t('col_title') }}</th>
             <th>{{ t('col_author') }}</th>
             <th>{{ t('col_desc') }}</th>
@@ -244,9 +273,13 @@ onMounted(loadBooks)
         </thead>
         <tbody>
           <tr v-if="books.length === 0 && !loading">
-            <td colspan="5" class="muted empty">{{ t('empty') }}</td>
+            <td colspan="6" class="muted empty">{{ t('empty') }}</td>
           </tr>
           <tr v-for="book in books" :key="book.id">
+            <td class="cover-cell">
+              <img v-if="rowCovers[book.id]" :src="rowCovers[book.id]" :alt="book.title" />
+              <div v-else class="row-placeholder">{{ t('no_cover') }}</div>
+            </td>
             <td>
               <button class="link-btn" @click="openDetail(book)">{{ book.title }}</button>
             </td>
@@ -255,7 +288,7 @@ onMounted(loadBooks)
             <td>{{ formatTime(book.updatedAt) }}</td>
             <td class="actions-col">
               <button class="btn btn-secondary" @click="openDetail(book)">{{ t('detail') }}</button>
-              <button class="btn btn-secondary" @click="openEdit(book)">{{ t('edit') }}</button>
+              <button class="btn btn-primary" @click="readBook(book)">{{ t('read') }}</button>
               <button class="btn btn-danger" @click="removeBook(book)">{{ t('delete') }}</button>
             </td>
           </tr>
@@ -334,9 +367,9 @@ onMounted(loadBooks)
     </div>
 
     <ReaderView
-      v-if="readerOpen"
-      :book-id="detailBook.id"
-      :book-title="detailBook.title"
+      v-if="readerOpen && readerBook"
+      :book-id="readerBook.id"
+      :book-title="readerBook.title"
       @close="readerOpen = false"
     />
 
@@ -410,6 +443,30 @@ th {
 
 .desc {
   max-width: 260px;
+}
+
+.cover-cell {
+  width: 64px;
+}
+
+.cover-cell img,
+.row-placeholder {
+  width: 44px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.row-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 4px;
 }
 
 .actions-col {
