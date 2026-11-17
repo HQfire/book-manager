@@ -26,6 +26,9 @@ const message = ref('')
 const modalOpen = ref(false)
 const editingId = ref(null)
 const form = ref({ title: '', author: '', description: '' })
+const createCover = ref(null)
+const createText = ref(null)
+const createCoverPreview = ref('')
 
 const detailBook = ref(null)
 const detailReader = ref(null)
@@ -73,10 +76,34 @@ function onSearch() {
   loadBooks()
 }
 
+function resetCreateFiles() {
+  createCover.value = null
+  createText.value = null
+  if (createCoverPreview.value) {
+    URL.revokeObjectURL(createCoverPreview.value)
+    createCoverPreview.value = ''
+  }
+}
+
 function openCreate() {
   editingId.value = null
   form.value = { title: '', author: '', description: '' }
+  resetCreateFiles()
   modalOpen.value = true
+}
+
+function onCreateCoverPick(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  createCover.value = file || null
+  if (createCoverPreview.value) URL.revokeObjectURL(createCoverPreview.value)
+  createCoverPreview.value = file ? URL.createObjectURL(file) : ''
+}
+
+function onCreateTextPick(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  createText.value = file || null
 }
 
 function openEdit(book) {
@@ -98,12 +125,15 @@ async function submitForm() {
   }
   try {
     if (editingId.value == null) {
-      await api.createBook(form.value)
+      const created = await api.createBook(form.value)
+      if (createCover.value) await api.uploadCover(created.id, createCover.value)
+      if (createText.value) await api.uploadText(created.id, createText.value)
       message.value = t('created')
     } else {
       await api.updateBook(editingId.value, form.value)
       message.value = t('updated')
     }
+    resetCreateFiles()
     modalOpen.value = false
     loadBooks()
   } catch (e) {
@@ -230,6 +260,7 @@ async function readBook(book) {
 
 onUnmounted(() => {
   if (coverUrl.value) URL.revokeObjectURL(coverUrl.value)
+  if (createCoverPreview.value) URL.revokeObjectURL(createCoverPreview.value)
   Object.values(rowCovers.value).forEach((url) => URL.revokeObjectURL(url))
 })
 
@@ -289,7 +320,6 @@ onMounted(loadBooks)
             <td class="actions-col">
               <button class="btn btn-secondary" @click="openDetail(book)">{{ t('detail') }}</button>
               <button class="btn btn-primary" @click="readBook(book)">{{ t('read') }}</button>
-              <button class="btn btn-danger" @click="removeBook(book)">{{ t('delete') }}</button>
             </td>
           </tr>
         </tbody>
@@ -318,6 +348,29 @@ onMounted(loadBooks)
         <div class="field">
           <label>{{ t('col_desc') }}</label>
           <textarea v-model="form.description" rows="3" maxlength="500"></textarea>
+        </div>
+        <div v-if="editingId == null" class="create-attachments">
+          <div class="field">
+            <label>{{ t('upload_cover') }}</label>
+            <div class="file-pick-row">
+              <img v-if="createCoverPreview" :src="createCoverPreview" class="create-thumb" :alt="t('cover')" />
+              <label class="btn btn-secondary file-btn">
+                {{ t('select_cover') }}
+                <input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onCreateCoverPick" />
+              </label>
+              <span v-if="createCover" class="muted">{{ createCover.name }}</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>{{ t('upload_text') }}</label>
+            <div class="file-pick-row">
+              <label class="btn btn-secondary file-btn">
+                {{ t('select_text') }}
+                <input type="file" accept=".txt,.md" hidden @change="onCreateTextPick" />
+              </label>
+              <span v-if="createText" class="muted">{{ createText.name }}</span>
+            </div>
+          </div>
         </div>
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
@@ -594,5 +647,27 @@ th {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.create-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.file-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.create-thumb {
+  width: 44px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
 }
 </style>
