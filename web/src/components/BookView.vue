@@ -25,6 +25,7 @@ const message = ref('')
 
 const modalOpen = ref(false)
 const editingId = ref(null)
+const editingBook = ref(null)
 const form = ref({ title: '', author: '', description: '' })
 const createCover = ref(null)
 const createText = ref(null)
@@ -106,14 +107,24 @@ function onCreateTextPick(event) {
   createText.value = file || null
 }
 
-function openEdit(book) {
-  editingId.value = book.id
+async function openEdit(book) {
+  const target = book
+  closeDetail()
+  editingId.value = target.id
+  editingBook.value = target
   form.value = {
-    title: book.title || '',
-    author: book.author || '',
-    description: book.description || '',
+    title: target.title || '',
+    author: target.author || '',
+    description: target.description || '',
   }
+  error.value = ''
   modalOpen.value = true
+  await loadCover(target.id)
+  try {
+    detailReader.value = await api.reader(target.id)
+  } catch {
+    detailReader.value = null
+  }
 }
 
 async function submitForm() {
@@ -134,6 +145,7 @@ async function submitForm() {
       message.value = t('updated')
     }
     resetCreateFiles()
+    editingBook.value = null
     modalOpen.value = false
     loadBooks()
   } catch (e) {
@@ -146,6 +158,8 @@ async function removeBook(book) {
   try {
     await api.deleteBook(book.id)
     message.value = t('deleted')
+    editingBook.value = null
+    modalOpen.value = false
     closeDetail()
     loadBooks()
   } catch (e) {
@@ -215,27 +229,27 @@ function closeDetail() {
   }
 }
 
-async function onCoverPick(event) {
+async function onEditCoverPick(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file || !detailBook.value) return
+  if (!file || editingId.value == null) return
   try {
-    await api.uploadCover(detailBook.value.id, file)
+    await api.uploadCover(editingId.value, file)
     message.value = t('upload_success')
-    loadCover(detailBook.value.id)
+    loadCover(editingId.value)
   } catch (e) {
     error.value = e.message
   }
 }
 
-async function onTextPick(event) {
+async function onEditTextPick(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file || !detailBook.value) return
+  if (!file || editingId.value == null) return
   try {
-    await api.uploadText(detailBook.value.id, file)
+    await api.uploadText(editingId.value, file)
     message.value = t('upload_success')
-    detailReader.value = await api.reader(detailBook.value.id)
+    detailReader.value = await api.reader(editingId.value)
   } catch (e) {
     error.value = e.message
   }
@@ -358,8 +372,34 @@ onMounted(loadBooks)
             </div>
           </div>
         </div>
+        <div v-if="editingId != null" class="create-attachments">
+          <div class="field">
+            <label>{{ t('cover') }}</label>
+            <div class="file-pick-row">
+              <img v-if="coverUrl" :src="coverUrl" class="create-thumb" :alt="t('cover')" />
+              <label class="btn btn-secondary file-btn">
+                {{ t('edit_cover') }}
+                <input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onEditCoverPick" />
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <label>{{ t('text_file') }}</label>
+            <div class="file-pick-row">
+              <label class="btn btn-secondary file-btn">
+                {{ t('edit_text') }}
+                <input type="file" accept=".txt,.md" hidden @change="onEditTextPick" />
+              </label>
+              <span v-if="detailReader" class="muted">
+                {{ detailReader.fileName }} · {{ detailReader.chapters.length }} {{ t('chapter_count') }}
+              </span>
+              <span v-else class="muted">{{ t('no_text') }}</span>
+            </div>
+          </div>
+        </div>
         <p v-if="error" class="error">{{ error }}</p>
         <div class="modal-actions">
+          <button v-if="editingId != null" class="btn btn-danger danger-left" @click="removeBook(editingBook)">{{ t('delete') }}</button>
           <button class="btn btn-secondary" @click="modalOpen = false">{{ t('cancel') }}</button>
           <button class="btn btn-primary" @click="submitForm">{{ t('save') }}</button>
         </div>
@@ -389,17 +429,8 @@ onMounted(loadBooks)
         </div>
         <p v-if="error" class="error">{{ error }}</p>
         <div class="detail-actions">
-          <label class="btn btn-secondary file-btn">
-            {{ t('upload_cover') }}
-            <input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onCoverPick" />
-          </label>
-          <label class="btn btn-secondary file-btn">
-            {{ t('upload_text') }}
-            <input type="file" accept=".txt,.md" hidden @change="onTextPick" />
-          </label>
           <button class="btn btn-primary" :disabled="!detailReader" @click="openReader">{{ t('read') }}</button>
-          <button class="btn btn-secondary" @click="openEdit(detailBook); closeDetail()">{{ t('edit') }}</button>
-          <button class="btn btn-danger" @click="removeBook(detailBook)">{{ t('delete') }}</button>
+          <button class="btn btn-secondary" @click="openEdit(detailBook)">{{ t('edit') }}</button>
           <button class="btn btn-secondary" @click="closeDetail">{{ t('close') }}</button>
         </div>
       </div>
@@ -597,6 +628,10 @@ onMounted(loadBooks)
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.danger-left {
+  margin-right: auto;
 }
 
 .detail-modal {
