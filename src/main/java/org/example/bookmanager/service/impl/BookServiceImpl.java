@@ -40,7 +40,7 @@ public class BookServiceImpl implements BookService {
     private static final String NULL_MARKER = "__NULL_BOOK__";
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
-    private static final long MAX_TEXT_SIZE = 2L * 1024 * 1024;
+    private static final long MAX_TEXT_SIZE = 5L * 1024 * 1024;
     private static final long MAX_COVER_SIZE = 2L * 1024 * 1024;
     private static final Set<String> TEXT_EXTENSIONS = Set.of("txt", "md");
     private static final Set<String> COVER_MIMES = Set.of("image/png", "image/jpeg", "image/webp");
@@ -296,7 +296,7 @@ public class BookServiceImpl implements BookService {
             throw new BizException(400, "only txt and md plain text files are supported");
         }
         if (file.getSize() > MAX_TEXT_SIZE) {
-            throw new BizException(400, "text file exceeds 2MB limit");
+            throw new BizException(400, "text file exceeds 5MB limit");
         }
     }
 

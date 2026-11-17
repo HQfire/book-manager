@@ -88,7 +88,7 @@ npm run dev
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/books/{id}/text` | 上传 txt/md 纯文本（≤2MB），自动识别 UTF-8、GB18030、UTF-16 编码后解码入库 |
+| POST | `/api/books/{id}/text` | 上传 txt/md 纯文本（≤5MB），自动识别 UTF-8、GB18030、UTF-16 编码后解码入库 |
 | POST | `/api/books/{id}/cover` | 上传封面图片（png/jpeg/webp，≤2MB，BLOB 入库） |
 | GET | `/api/books/{id}/reader` | 阅读器数据：文件名、编码、大小、章节列表与正文 |
 | GET | `/api/books/{id}/cover` | 封面图片字节流，需在请求头携带 token |
