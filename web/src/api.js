@@ -110,7 +110,11 @@ export async function fetchCoverBlob(id) {
   if (!response.ok) {
     throw new Error(t('error_404'))
   }
-  return URL.createObjectURL(await response.blob())
+  const blob = await response.blob()
+  if (blob.type && blob.type.includes('application/json')) {
+    throw new Error(t('error_404'))
+  }
+  return URL.createObjectURL(blob)
 }
 
 export const api = {
