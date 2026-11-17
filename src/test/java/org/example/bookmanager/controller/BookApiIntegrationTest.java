@@ -150,6 +150,32 @@ class BookApiIntegrationTest {
     }
 
     @Test
+    void shouldLockAfterRepeatedFailedLogins() throws Exception {
+        String username = "it_lock_" + System.nanoTime();
+        createdUsernames.add(username);
+        register(username, "secret123");
+        String failKey = "auth:login:fail:" + username;
+
+        for (int i = 0; i < 5; i++) {
+            String body = OBJECT_MAPPER.writeValueAsString(Map.of("username", username, "password", "wrong-pass"));
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(401));
+        }
+
+        String blockedBody = OBJECT_MAPPER.writeValueAsString(Map.of("username", username, "password", "wrong-pass"));
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(blockedBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(429));
+
+        redisTemplate.delete(failKey);
+    }
+
+    @Test
     void shouldRejectBlankTitle() throws Exception {
         String token = newUserToken();
         String body = OBJECT_MAPPER.writeValueAsString(Map.of("title", "", "author", "Tester"));
@@ -314,6 +340,14 @@ class BookApiIntegrationTest {
         assertEquals("UTF-8", node.path("data").path("encoding").asText());
         assertEquals(2, node.path("data").path("chapters").size());
         assertEquals("第一章 启程", node.path("data").path("chapters").get(0).path("title").asText());
+
+        MvcResult chapterResult = mockMvc.perform(get("/api/books/" + bookId + "/chapters/0")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn();
+        JsonNode chapter = OBJECT_MAPPER.readTree(chapterResult.getResponse().getContentAsString());
+        assertTrue(chapter.path("data").path("content").asText().contains("少年走进森林"));
     }
 
     @Test

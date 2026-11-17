@@ -7,6 +7,7 @@ import org.example.bookmanager.common.Result;
 import org.example.bookmanager.config.AuthInterceptor;
 import org.example.bookmanager.dto.BookQueryRequest;
 import org.example.bookmanager.dto.BookSaveRequest;
+import org.example.bookmanager.dto.ChapterContent;
 import org.example.bookmanager.dto.ReaderDTO;
 import org.example.bookmanager.entity.Book;
 import org.example.bookmanager.entity.BookCover;
@@ -86,6 +87,13 @@ public class BookController {
     public Result<ReaderDTO> reader(@PathVariable Long id, HttpServletRequest httpRequest) {
         Long currentUserId = currentUserId(httpRequest);
         return Result.ok(bookService.getReader(id, currentUserId));
+    }
+
+    @GetMapping("/{id}/chapters/{index}")
+    public Result<ChapterContent> chapter(@PathVariable Long id, @PathVariable int index,
+                                           HttpServletRequest httpRequest) {
+        Long currentUserId = currentUserId(httpRequest);
+        return Result.ok(bookService.getChapter(id, index, currentUserId));
     }
 
     @GetMapping("/{id}/cover")

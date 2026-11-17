@@ -133,4 +133,5 @@ export const api = {
   uploadText: (id, file) => uploadFile(`/books/${id}/text`, file),
   uploadCover: (id, file) => uploadFile(`/books/${id}/cover`, file),
   reader: (id) => request('GET', `/books/${id}/reader`),
+  chapter: (id, index) => request('GET', `/books/${id}/chapters/${index}`),
 }

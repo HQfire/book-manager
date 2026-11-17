@@ -33,6 +33,7 @@ const prefs = reactive({
   size: savedPref.size || 18,
   bg: savedPref.bg || '#f5f0e6',
   color: savedPref.color || '#2b2118',
+  tocOpen: savedPref.tocOpen !== false,
 })
 
 watch(prefs, (value) => {
@@ -45,13 +46,31 @@ const reader = ref(null)
 const chapterIndex = ref(0)
 const settingsOpen = ref(false)
 const contentRef = ref(null)
+const chapterCache = reactive({})
+const chapterLoading = ref(false)
+const chapterError = ref('')
+let loadSeq = 0
 
-const currentChapter = computed(() => {
-  const chapters = reader.value?.chapters || []
-  return chapters[chapterIndex.value] || null
-})
+const currentChapter = computed(() => chapterCache[chapterIndex.value] || null)
 
 const fontFamily = computed(() => FAMILIES[prefs.family] || FAMILIES.serif)
+
+async function loadChapter(index) {
+  if (chapterCache[index]) return
+  const seq = ++loadSeq
+  chapterLoading.value = true
+  chapterError.value = ''
+  try {
+    const data = await api.chapter(props.bookId, index)
+    if (seq !== loadSeq) return
+    chapterCache[index] = data
+  } catch (e) {
+    if (seq !== loadSeq) return
+    chapterError.value = e.message
+  } finally {
+    if (seq === loadSeq) chapterLoading.value = false
+  }
+}
 
 async function loadReader() {
   loading.value = true
@@ -59,6 +78,9 @@ async function loadReader() {
   try {
     reader.value = await api.reader(props.bookId)
     chapterIndex.value = 0
+    Object.keys(chapterCache).forEach((key) => delete chapterCache[key])
+    await nextTick()
+    await loadChapter(0)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -68,9 +90,10 @@ async function loadReader() {
   if (contentRef.value) contentRef.value.scrollTop = 0
 }
 
-watch(chapterIndex, async () => {
+watch(chapterIndex, async (index) => {
   await nextTick()
   if (contentRef.value) contentRef.value.scrollTop = 0
+  await loadChapter(index)
 })
 
 function selectChapter(index) {
@@ -104,13 +127,18 @@ onMounted(loadReader)
 
 <template>
   <div class="reader-mask">
-    <div class="reader-shell">
+    <div class="reader-shell" :class="{ 'toc-collapsed': !prefs.tocOpen }">
       <header class="reader-bar">
         <button class="btn btn-secondary" @click="emit('close')">&times; {{ t('close') }}</button>
         <div class="reader-title">{{ bookTitle || t('reader_title') }}</div>
-        <button class="btn btn-secondary" @click="settingsOpen = !settingsOpen">
-          {{ t('font_size') }}
-        </button>
+        <div class="reader-bar-actions">
+          <button class="btn btn-secondary" @click="prefs.tocOpen = !prefs.tocOpen">
+            {{ prefs.tocOpen ? t('toc_collapse') : t('toc_expand') }}
+          </button>
+          <button class="btn btn-secondary" @click="settingsOpen = !settingsOpen">
+            {{ t('font_size') }}
+          </button>
+        </div>
       </header>
 
       <div v-if="settingsOpen" class="reader-settings card">
@@ -159,7 +187,7 @@ onMounted(loadReader)
       <p v-if="error" class="reader-body error">{{ error }}</p>
 
       <div v-else-if="reader" class="reader-layout">
-        <aside class="toc">
+        <aside v-show="prefs.tocOpen" class="toc">
           <div class="toc-title">{{ t('toc') }}（{{ reader.chapters.length }}）</div>
           <button
             v-for="chapter in reader.chapters"
@@ -183,7 +211,9 @@ onMounted(loadReader)
           }"
         >
           <h2 v-if="currentChapter" class="chapter-title">{{ currentChapter.title }}</h2>
-          <div class="chapter-text" v-text="currentChapter?.content || ''" />
+          <div v-if="chapterLoading" class="muted">{{ t('reader_loading') }}</div>
+          <div v-else-if="chapterError" class="error">{{ chapterError }}</div>
+          <div v-else class="chapter-text" v-text="currentChapter?.content || ''" />
           <div class="reader-nav">
             <button class="btn btn-secondary" :disabled="chapterIndex === 0" @click="prevChapter">
               {{ t('prev_chapter') }}
@@ -222,6 +252,16 @@ onMounted(loadReader)
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.reader-shell.toc-collapsed {
+  max-width: 1200px;
+}
+
+.reader-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .reader-bar {

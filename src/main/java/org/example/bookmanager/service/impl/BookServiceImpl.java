@@ -7,10 +7,14 @@ import org.example.bookmanager.common.BizException;
 import org.example.bookmanager.common.PageResult;
 import org.example.bookmanager.dto.BookQueryRequest;
 import org.example.bookmanager.dto.BookSaveRequest;
+import org.example.bookmanager.dto.ChapterContent;
+import org.example.bookmanager.dto.ChapterToc;
 import org.example.bookmanager.dto.ReaderDTO;
 import org.example.bookmanager.entity.Book;
+import org.example.bookmanager.entity.BookChapter;
 import org.example.bookmanager.entity.BookCover;
 import org.example.bookmanager.entity.BookText;
+import org.example.bookmanager.mapper.BookChapterMapper;
 import org.example.bookmanager.mapper.BookCoverMapper;
 import org.example.bookmanager.mapper.BookMapper;
 import org.example.bookmanager.mapper.BookTextMapper;
@@ -23,6 +27,9 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 import java.util.List;
 import java.util.Set;
@@ -50,13 +57,16 @@ public class BookServiceImpl implements BookService {
     private final BookMapper bookMapper;
     private final BookCoverMapper coverMapper;
     private final BookTextMapper textMapper;
+    private final BookChapterMapper chapterMapper;
     private final RedisTemplate<String, String> redisTemplate;
 
     public BookServiceImpl(BookMapper bookMapper, BookCoverMapper coverMapper,
-                           BookTextMapper textMapper, RedisTemplate<String, String> redisTemplate) {
+                           BookTextMapper textMapper, BookChapterMapper chapterMapper,
+                           RedisTemplate<String, String> redisTemplate) {
         this.bookMapper = bookMapper;
         this.coverMapper = coverMapper;
         this.textMapper = textMapper;
+        this.chapterMapper = chapterMapper;
         this.redisTemplate = redisTemplate;
     }
 
@@ -97,6 +107,7 @@ public class BookServiceImpl implements BookService {
         bookMapper.deleteById(id);
         coverMapper.deleteById(id);
         textMapper.deleteById(id);
+        chapterMapper.delete(new QueryWrapper<BookChapter>().eq("book_id", id));
         evictCache(id);
         log.info("book deleted: id={}, userId={}", id, currentUserId);
     }
@@ -150,9 +161,10 @@ public class BookServiceImpl implements BookService {
         if (!author.isBlank()) {
             wrapper.like("author", author);
         }
-        String keyword = escapeLike(query.getKeyword());
-        if (!keyword.isBlank()) {
-            wrapper.and(w -> w.like("title", keyword).or().like("author", keyword));
+        String keyword = query.getKeyword() == null ? "" : query.getKeyword().trim();
+        String booleanQuery = buildBooleanQuery(keyword);
+        if (!booleanQuery.isBlank()) {
+            wrapper.apply("MATCH(title, author) AGAINST ({0} IN BOOLEAN MODE)", booleanQuery);
         }
         wrapper.orderByDesc("id");
 
@@ -208,6 +220,14 @@ public class BookServiceImpl implements BookService {
                 .replace("_", "\\_");
     }
 
+    private String buildBooleanQuery(String keyword) {
+        String sanitized = keyword.replaceAll("[+-><()*~@\"]", " ");
+        return Arrays.stream(sanitized.split("\\s+"))
+                .filter(token -> !token.isBlank())
+                .map(token -> "+" + token)
+                .collect(Collectors.joining(" "));
+    }
+
     @Override
     @Transactional
     public void attachText(Long bookId, Long currentUserId, MultipartFile file) {
@@ -236,6 +256,7 @@ public class BookServiceImpl implements BookService {
         } else {
             textMapper.updateById(entity);
         }
+        replaceChapters(bookId, decoded.content());
         log.info("text attached: bookId={}, fileName={}, encoding={}, size={}",
                 bookId, entity.getFileName(), entity.getEncoding(), entity.getSize());
     }
@@ -278,8 +299,48 @@ public class BookServiceImpl implements BookService {
         if (text == null || text.getContent() == null) {
             throw new BizException(404, "no text uploaded for this book");
         }
-        List<ChapterParser.Chapter> chapters = ChapterParser.parse(text.getContent());
-        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), chapters);
+        ensureChapters(bookId, text.getContent());
+        List<BookChapter> rows = chapterMapper.selectList(
+                new QueryWrapper<BookChapter>().eq("book_id", bookId).orderByAsc("chapter_no"));
+        List<ChapterToc> toc = rows.stream()
+                .map(row -> new ChapterToc(row.getChapterNo(), row.getTitle()))
+                .toList();
+        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), toc);
+    }
+
+    @Override
+    public ChapterContent getChapter(Long bookId, int chapterIndex, Long currentUserId) {
+        loadOwnedBook(bookId, currentUserId);
+        BookChapter row = chapterMapper.selectOne(new QueryWrapper<BookChapter>()
+                .eq("book_id", bookId).eq("chapter_no", chapterIndex));
+        if (row == null) {
+            throw new BizException(404, "chapter not found");
+        }
+        return new ChapterContent(row.getChapterNo(), row.getTitle(), row.getContent());
+    }
+
+    private void replaceChapters(Long bookId, String content) {
+        chapterMapper.delete(new QueryWrapper<BookChapter>().eq("book_id", bookId));
+        List<ChapterParser.Chapter> chapters = ChapterParser.parse(content);
+        for (ChapterParser.Chapter chapter : chapters) {
+            BookChapter row = new BookChapter();
+            row.setBookId(bookId);
+            row.setChapterNo(chapter.index());
+            row.setTitle(chapter.title());
+            row.setContent(chapter.content());
+            chapterMapper.insert(row);
+        }
+    }
+
+    private void ensureChapters(Long bookId, String sourceContent) {
+        Long count = chapterMapper.selectCount(new QueryWrapper<BookChapter>().eq("book_id", bookId));
+        if (count != null && count > 0) {
+            return;
+        }
+        if (sourceContent == null || sourceContent.isBlank()) {
+            return;
+        }
+        replaceChapters(bookId, sourceContent);
     }
 
     @Override

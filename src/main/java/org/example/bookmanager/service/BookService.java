@@ -3,6 +3,7 @@ package org.example.bookmanager.service;
 import org.example.bookmanager.common.PageResult;
 import org.example.bookmanager.dto.BookQueryRequest;
 import org.example.bookmanager.dto.BookSaveRequest;
+import org.example.bookmanager.dto.ChapterContent;
 import org.example.bookmanager.dto.ReaderDTO;
 import org.example.bookmanager.entity.Book;
 import org.example.bookmanager.entity.BookCover;
@@ -25,6 +26,8 @@ public interface BookService {
     void attachCover(Long bookId, Long currentUserId, MultipartFile file);
 
     ReaderDTO getReader(Long bookId, Long currentUserId);
+
+    ChapterContent getChapter(Long bookId, int chapterIndex, Long currentUserId);
 
     BookCover getCover(Long bookId, Long currentUserId);
 }

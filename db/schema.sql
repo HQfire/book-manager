@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS book (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_book_user_id_id (user_id, id)
+    KEY idx_book_user_id_id (user_id, id),
+    FULLTEXT KEY ft_book_title_author (title, author) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS book_cover (
@@ -36,4 +37,16 @@ CREATE TABLE IF NOT EXISTS book_text (
     size BIGINT,
     content LONGTEXT,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS book_chapter (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    book_id BIGINT NOT NULL,
+    chapter_no INT NOT NULL,
+    title VARCHAR(255),
+    content LONGTEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_chapter_book_no (book_id, chapter_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

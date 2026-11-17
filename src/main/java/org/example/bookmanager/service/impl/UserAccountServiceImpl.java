@@ -8,6 +8,7 @@ import org.example.bookmanager.dto.RegisterRequest;
 import org.example.bookmanager.dto.UserDTO;
 import org.example.bookmanager.entity.UserAccount;
 import org.example.bookmanager.mapper.UserAccountMapper;
+import org.example.bookmanager.service.LoginRateLimitService;
 import org.example.bookmanager.service.TokenBlacklistService;
 import org.example.bookmanager.service.UserAccountService;
 import org.example.bookmanager.util.JwtUtil;
@@ -25,12 +26,15 @@ public class UserAccountServiceImpl implements UserAccountService {
     private final UserAccountMapper userAccountMapper;
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService blacklistService;
+    private final LoginRateLimitService rateLimitService;
 
     public UserAccountServiceImpl(UserAccountMapper userAccountMapper, JwtUtil jwtUtil,
-                                  TokenBlacklistService blacklistService) {
+                                  TokenBlacklistService blacklistService,
+                                  LoginRateLimitService rateLimitService) {
         this.userAccountMapper = userAccountMapper;
         this.jwtUtil = jwtUtil;
         this.blacklistService = blacklistService;
+        this.rateLimitService = rateLimitService;
     }
 
     @Override
@@ -53,13 +57,20 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     @Override
     public LoginResponse login(LoginRequest request) {
+        String username = request.getUsername();
+        if (rateLimitService.isLocked(username)) {
+            log.warn("login blocked by rate limit: username={}", username);
+            throw new BizException(429, "too many failed login attempts, please try later");
+        }
         QueryWrapper<UserAccount> wrapper = new QueryWrapper<>();
-        wrapper.eq("username", request.getUsername());
+        wrapper.eq("username", username);
         UserAccount user = userAccountMapper.selectOne(wrapper);
         if (user == null || !PasswordUtil.matches(request.getPassword(), user.getPassword())) {
-            log.warn("login failed: username={}", request.getUsername());
+            rateLimitService.recordFailure(username);
+            log.warn("login failed: username={}", username);
             throw new BizException(401, "invalid username or password");
         }
+        rateLimitService.reset(username);
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         return new LoginResponse(token, user.getId(), user.getUsername());
     }
