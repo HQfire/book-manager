@@ -15,9 +15,13 @@ const emit = defineEmits(['logout'])
 const books = ref([])
 const total = ref(0)
 const pageNum = ref(1)
-const pageSize = 10
+const pageSize = ref(6)
 const filterTitle = ref('')
 const filterAuthor = ref('')
+
+const GRID_MIN_CARD = 190
+const GRID_GAP = 20
+let resizeTimer = null
 
 const loading = ref(false)
 const error = ref('')
@@ -38,7 +42,7 @@ const readerOpen = ref(false)
 const readerBook = ref(null)
 const rowCovers = ref({})
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
 async function loadBooks() {
   loading.value = true
@@ -46,7 +50,7 @@ async function loadBooks() {
   try {
     const data = await api.pageBooks({
       pageNum: pageNum.value,
-      pageSize,
+      pageSize: pageSize.value,
       title: filterTitle.value,
       author: filterAuthor.value,
     })
@@ -75,6 +79,25 @@ async function loadRowCovers() {
 function onSearch() {
   pageNum.value = 1
   loadBooks()
+}
+
+function syncPageSize(reload = true) {
+  const card = document.querySelector('.list-card')
+  const width = card ? card.clientWidth - 40 : 880
+  const cols = Math.max(1, Math.floor((width + GRID_GAP) / (GRID_MIN_CARD + GRID_GAP)))
+  const next = cols * 2
+  if (next !== pageSize.value) {
+    pageSize.value = next
+    if (reload) {
+      pageNum.value = 1
+      loadBooks()
+    }
+  }
+}
+
+function onResize() {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(() => syncPageSize(true), 150)
 }
 
 function resetCreateFiles() {
@@ -273,12 +296,18 @@ async function readBook(book) {
 }
 
 onUnmounted(() => {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  window.removeEventListener('resize', onResize)
   if (coverUrl.value) URL.revokeObjectURL(coverUrl.value)
   if (createCoverPreview.value) URL.revokeObjectURL(createCoverPreview.value)
   Object.values(rowCovers.value).forEach((url) => URL.revokeObjectURL(url))
 })
 
-onMounted(loadBooks)
+onMounted(() => {
+  syncPageSize(false)
+  window.addEventListener('resize', onResize)
+  loadBooks()
+})
 </script>
 
 <template>
