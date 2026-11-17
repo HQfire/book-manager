@@ -12,9 +12,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,8 +46,12 @@ class BookApiIntegrationTest {
     @Autowired
     private UserAccountMapper userAccountMapper;
 
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
     private final List<String> createdUsernames = new ArrayList<>();
     private final List<Long> createdBookIds = new ArrayList<>();
+    private final List<String> cacheKeys = new ArrayList<>();
 
     private String newUserToken() throws Exception {
         String username = "it_" + System.nanoTime();
@@ -181,8 +189,75 @@ class BookApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value(200));
     }
 
+    @Test
+    void shouldRevokeTokenAfterLogout() throws Exception {
+        String token = newUserToken();
+        mockMvc.perform(get("/api/books/page").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        mockMvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        mockMvc.perform(get("/api/books/page").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void shouldCacheDetailAndEvictOnUpdate() throws Exception {
+        String token = newUserToken();
+        Long bookId = createBook(token, "Cache Probe");
+        String key = "book:detail:" + bookId;
+
+        mockMvc.perform(get("/api/books/" + bookId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+        assertTrue(Boolean.TRUE.equals(redisTemplate.hasKey(key)));
+        cacheKeys.add(key);
+
+        mockMvc.perform(get("/api/books/" + bookId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        String updateBody = OBJECT_MAPPER.writeValueAsString(Map.of(
+                "title", "Cache Probe Updated", "author", "Tester", "description", "x"));
+        mockMvc.perform(put("/api/books/" + bookId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(updateBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey(key)));
+    }
+
+    @Test
+    void shouldCacheNullMarkerForMissingBook() throws Exception {
+        String token = newUserToken();
+        String missingKey = "book:detail:99999999";
+        mockMvc.perform(get("/api/books/99999999").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(404));
+        assertTrue(Boolean.TRUE.equals(redisTemplate.hasKey(missingKey)));
+        cacheKeys.add(missingKey);
+    }
+
+    @Test
+    void shouldClampPageSizeToMax() throws Exception {
+        String token = newUserToken();
+        mockMvc.perform(get("/api/books/page?pageSize=100").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.pageSize").value(50));
+    }
+
     @AfterEach
     void cleanup() {
+        if (!cacheKeys.isEmpty()) {
+            redisTemplate.delete(cacheKeys);
+            cacheKeys.clear();
+        }
         if (!createdBookIds.isEmpty()) {
             bookMapper.deleteBatchIds(createdBookIds);
             createdBookIds.clear();

@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import AuthView from './components/AuthView.vue'
 import BookView from './components/BookView.vue'
-import { clearSession, getToken, getUsername } from './api.js'
+import { api, clearSession, getToken, getUsername } from './api.js'
 
 const token = ref(getToken())
 const username = ref(getUsername() || '')
@@ -12,7 +12,12 @@ function onLogin(payload) {
   username.value = payload.username
 }
 
-function onLogout() {
+async function onLogout() {
+  try {
+    await api.logout()
+  } catch (e) {
+    // ignore logout failure, local session is cleared below
+  }
   clearSession()
   token.value = ''
   username.value = ''

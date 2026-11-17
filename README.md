@@ -64,6 +64,7 @@ npm run dev
 |---|---|---|---|
 | POST | `/api/auth/register` | 注册 | `{"username": "...", "password": "..."}` |
 | POST | `/api/auth/login` | 登录，返回 JWT | `{"username": "...", "password": "..."}` |
+| POST | `/api/auth/logout` | 登出，将当前 token 的 `jti` 写入 Redis 黑名单 | 请求头携带 `Authorization: Bearer <token>` |
 
 登录成功返回：
 
@@ -93,11 +94,19 @@ npm run dev
 
 业务错误码：400 参数校验失败、401 未登录或 token 无效、403 无权限、404 不存在、409 用户名重复。
 
-## 缓存策略
+## 鉴权与缓存策略
 
-- 仅图书详情 `GET /api/books/{id}` 走 Redis，key 为 `book:detail:{id}`，TTL 30 分钟；
-- 图书更新、删除后主动删除对应缓存；分页列表不缓存；
-- 未命中（404）不写入缓存。
+- JWT 携带 `userId`、`username` 与唯一 `jti`；登出时把 `jti` 写入 Redis 黑名单（`auth:blacklist:{jti}`），有效期与 token 剩余时间对齐，拦截器每次校验黑名单。
+- 仅图书详情 `GET /api/books/{id}` 走 Redis，key 为 `book:detail:{id}`，采用 Cache-Aside：
+  - 正常结果 TTL 30 分钟，并叠加 0–5 分钟随机抖动，避免同一批 key 同时过期；
+  - 不存在的图书写入短 TTL（1 分钟）空值标记，防缓存穿透；
+  - 图书更新、删除后主动删除对应缓存；分页列表不缓存；
+  - 缓存反序列化失败时回源数据库，不直接抛异常。
+
+## 可观测性
+
+- `TraceIdFilter` 为每个请求生成 8 位 traceId，写入 MDC 并通过响应头 `X-Trace-Id` 返回；
+- 请求结束后记录方法、路径、响应状态与耗时（毫秒）。
 
 ## 目录结构
 
@@ -105,20 +114,20 @@ npm run dev
 web/            # Vue 3 + Vite 前端工程
 src/main/java/org/example/bookmanager
 ├── common      # 统一返回、分页结果、业务异常、全局异常处理
-├── config      # 拦截器注册、鉴权拦截器
+├── config      # 拦截器注册、鉴权拦截器、TraceId 过滤器
 ├── controller  # AuthController、BookController、HelloController
 ├── dto         # 请求与响应对象
 ├── entity      # UserAccount、Book
 ├── mapper      # MyBatis-Plus Mapper
-├── service     # 业务接口与实现
+├── service     # 业务接口、实现与 token 黑名单服务
 └── util        # 密码哈希、JWT 工具
 ```
 
 ## 当前边界（未实现，避免在简历中夸大）
 
 - 鉴权为轻量拦截器 + JJWT，未引入完整 Spring Security 过滤器链；
-- 无 token 刷新机制，过期后需重新登录；
-- 分页为手写 `LIMIT` 条件查询，未使用 MP 分页插件；
-- 缓存仅本地单实例 Redis，未做集群、二级缓存与缓存穿透防护；
+- 无 token 刷新机制，过期后需重新登录；登出黑名单基于单实例 Redis，重启后黑名单失效；
+- 分页为手写 `LIMIT` 条件查询，未使用 MP 分页插件，深分页仍有 offset 性能代价；
+- 缓存仅本地单实例 Redis，已做空值短 TTL 防穿透、TTL 抖动防雪崩，未做集群、二级缓存与热点 key 互斥重建；
 - 前端为本地 Vite 开发工程，未打包部署到服务器；
 - 未接入消息队列、分布式部署与云端上线。

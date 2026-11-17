@@ -1,5 +1,6 @@
 package org.example.bookmanager.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.example.bookmanager.common.Result;
 import org.example.bookmanager.dto.LoginRequest;
@@ -30,5 +31,14 @@ public class AuthController {
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return Result.ok(userAccountService.login(request));
+    }
+
+    @PostMapping("/logout")
+    public Result<Void> logout(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        String token = (header != null && header.startsWith("Bearer "))
+                ? header.substring("Bearer ".length()).trim() : null;
+        userAccountService.logout(token);
+        return Result.ok(null);
     }
 }

@@ -10,4 +10,6 @@ public interface UserAccountService {
     UserDTO register(RegisterRequest request);
 
     LoginResponse login(LoginRequest request);
+
+    void logout(String token);
 }

@@ -8,6 +8,7 @@ import org.example.bookmanager.dto.RegisterRequest;
 import org.example.bookmanager.dto.UserDTO;
 import org.example.bookmanager.entity.UserAccount;
 import org.example.bookmanager.mapper.UserAccountMapper;
+import org.example.bookmanager.service.TokenBlacklistService;
 import org.example.bookmanager.service.UserAccountService;
 import org.example.bookmanager.util.JwtUtil;
 import org.example.bookmanager.util.PasswordUtil;
@@ -23,10 +24,13 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     private final UserAccountMapper userAccountMapper;
     private final JwtUtil jwtUtil;
+    private final TokenBlacklistService blacklistService;
 
-    public UserAccountServiceImpl(UserAccountMapper userAccountMapper, JwtUtil jwtUtil) {
+    public UserAccountServiceImpl(UserAccountMapper userAccountMapper, JwtUtil jwtUtil,
+                                  TokenBlacklistService blacklistService) {
         this.userAccountMapper = userAccountMapper;
         this.jwtUtil = jwtUtil;
+        this.blacklistService = blacklistService;
     }
 
     @Override
@@ -58,5 +62,12 @@ public class UserAccountServiceImpl implements UserAccountService {
         }
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         return new LoginResponse(token, user.getId(), user.getUsername());
+    }
+
+    @Override
+    public void logout(String token) {
+        if (token != null && !token.isBlank()) {
+            blacklistService.revoke(token);
+        }
     }
 }

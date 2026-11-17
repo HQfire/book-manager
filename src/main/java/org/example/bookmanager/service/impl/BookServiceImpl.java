@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -25,6 +26,11 @@ public class BookServiceImpl implements BookService {
     private static final Logger log = LoggerFactory.getLogger(BookServiceImpl.class);
     private static final String CACHE_KEY_PREFIX = "book:detail:";
     private static final long CACHE_TTL_MINUTES = 30;
+    private static final long CACHE_TTL_JITTER_MINUTES = 5;
+    private static final long NULL_CACHE_TTL_MINUTES = 1;
+    private static final String NULL_MARKER = "__NULL_BOOK__";
+    private static final int DEFAULT_PAGE_SIZE = 10;
+    private static final int MAX_PAGE_SIZE = 50;
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
 
@@ -80,42 +86,49 @@ public class BookServiceImpl implements BookService {
         String key = CACHE_KEY_PREFIX + id;
         String cached = redisTemplate.opsForValue().get(key);
         if (cached != null) {
+            if (NULL_MARKER.equals(cached)) {
+                log.info("cache null hit: book id={}", id);
+                throw new BizException(404, "book not found");
+            }
             try {
                 Book cachedBook = MAPPER.readValue(cached, Book.class);
                 checkOwnership(cachedBook, currentUserId);
+                log.info("cache hit: book id={}", id);
                 return cachedBook;
+            } catch (BizException e) {
+                throw e;
             } catch (Exception e) {
                 log.warn("cache deserialization failed for book id={}, falling back to DB", id);
             }
         }
+        log.info("cache miss: book id={}", id);
 
         Book book = bookMapper.selectById(id);
         if (book == null) {
+            cacheNull(key);
             throw new BizException(404, "book not found");
         }
         checkOwnership(book, currentUserId);
-
-        try {
-            redisTemplate.opsForValue().set(key, MAPPER.writeValueAsString(book), CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception e) {
-            log.warn("failed to cache book id={}", id, e);
-        }
+        cacheBook(key, book);
         return book;
     }
 
     @Override
     public PageResult<Book> page(BookQueryRequest query, Long currentUserId) {
         int pageNum = query.getPageNum() == null || query.getPageNum() < 1 ? 1 : query.getPageNum();
-        int pageSize = query.getPageSize() == null || query.getPageSize() < 1 ? 10 : query.getPageSize();
+        int pageSize = query.getPageSize() == null || query.getPageSize() < 1
+                ? DEFAULT_PAGE_SIZE : Math.min(query.getPageSize(), MAX_PAGE_SIZE);
         int offset = (pageNum - 1) * pageSize;
 
         QueryWrapper<Book> wrapper = new QueryWrapper<>();
         wrapper.eq("user_id", currentUserId);
-        if (query.getTitle() != null && !query.getTitle().isBlank()) {
-            wrapper.like("title", query.getTitle().trim());
+        String title = escapeLike(query.getTitle());
+        if (!title.isBlank()) {
+            wrapper.like("title", title);
         }
-        if (query.getAuthor() != null && !query.getAuthor().isBlank()) {
-            wrapper.like("author", query.getAuthor().trim());
+        String author = escapeLike(query.getAuthor());
+        if (!author.isBlank()) {
+            wrapper.like("author", author);
         }
         wrapper.orderByDesc("id");
 
@@ -139,7 +152,35 @@ public class BookServiceImpl implements BookService {
         }
     }
 
+    private void cacheBook(String key, Book book) {
+        long ttlMinutes = CACHE_TTL_MINUTES
+                + ThreadLocalRandom.current().nextLong(CACHE_TTL_JITTER_MINUTES + 1);
+        try {
+            redisTemplate.opsForValue().set(key, MAPPER.writeValueAsString(book), ttlMinutes, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("failed to cache book id={}", book.getId(), e);
+        }
+    }
+
+    private void cacheNull(String key) {
+        try {
+            redisTemplate.opsForValue().set(key, NULL_MARKER, NULL_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("failed to cache null marker for key={}", key, e);
+        }
+    }
+
     private void evictCache(Long id) {
         redisTemplate.delete(CACHE_KEY_PREFIX + id);
+    }
+
+    private String escapeLike(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 }

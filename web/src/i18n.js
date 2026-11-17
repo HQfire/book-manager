@@ -59,6 +59,13 @@ const messages = {
     module_book: '图书',
     about: '关于',
     close: '关闭',
+    error_400: '请求参数有误，请检查后重试',
+    error_401: '登录已过期，请重新登录',
+    error_403: '无权访问该资源',
+    error_404: '请求的资源不存在',
+    error_409: '该资源已存在',
+    error_500: '服务器内部错误，请稍后重试',
+    error_network: '网络异常，请稍后重试',
   },
   en: {
     app_title: 'Book Manager',
@@ -116,6 +123,13 @@ const messages = {
     module_book: 'Book',
     about: 'About',
     close: 'Close',
+    error_400: 'Invalid request parameters',
+    error_401: 'Session expired, please sign in again',
+    error_403: 'You do not have access to this resource',
+    error_404: 'Resource not found',
+    error_409: 'Resource already exists',
+    error_500: 'Internal server error, please try again later',
+    error_network: 'Network error, please try again later',
   },
 }
 

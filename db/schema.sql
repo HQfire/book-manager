@@ -17,5 +17,5 @@ CREATE TABLE IF NOT EXISTS book (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    KEY idx_book_user_id (user_id)
+    KEY idx_book_user_id_id (user_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

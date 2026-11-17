@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
 
 @Component
 public class JwtUtil {
@@ -28,6 +29,7 @@ public class JwtUtil {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + expirationMillis);
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(String.valueOf(userId))
                 .claim("username", username)
                 .issuedAt(now)
@@ -37,15 +39,14 @@ public class JwtUtil {
     }
 
     public Long parseUserId(String token) {
-        Claims claims = parse(token);
-        return Long.valueOf(claims.getSubject());
+        return Long.valueOf(parseClaims(token).getSubject());
     }
 
     public String parseUsername(String token) {
-        return parse(token).get("username", String.class);
+        return parseClaims(token).get("username", String.class);
     }
 
-    private Claims parse(String token) {
+    public Claims parseClaims(String token) {
         try {
             return Jwts.parser()
                     .verifyWith(key)
@@ -55,5 +56,9 @@ public class JwtUtil {
         } catch (JwtException | IllegalArgumentException e) {
             throw new BizException(401, "invalid or expired token");
         }
+    }
+
+    public long getExpirationMillis() {
+        return expirationMillis;
     }
 }
