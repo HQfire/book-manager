@@ -16,8 +16,7 @@ const books = ref([])
 const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(6)
-const filterTitle = ref('')
-const filterAuthor = ref('')
+const filterKeyword = ref('')
 
 const GRID_MIN_CARD = 190
 const GRID_GAP = 20
@@ -51,8 +50,7 @@ async function loadBooks() {
     const data = await api.pageBooks({
       pageNum: pageNum.value,
       pageSize: pageSize.value,
-      title: filterTitle.value,
-      author: filterAuthor.value,
+      keyword: filterKeyword.value,
     })
     books.value = data.records || []
     total.value = data.total || 0
@@ -323,8 +321,7 @@ onMounted(() => {
 
     <section class="card toolbar">
       <div class="filters">
-        <input v-model="filterTitle" :placeholder="t('col_title')" @keyup.enter="onSearch" />
-        <input v-model="filterAuthor" :placeholder="t('col_author')" @keyup.enter="onSearch" />
+        <input v-model="filterKeyword" :placeholder="t('search_keyword')" @keyup.enter="onSearch" />
         <button class="btn btn-secondary" @click="onSearch">{{ t('search') }}</button>
       </div>
       <button class="btn btn-primary" @click="openCreate">{{ t('new_book') }}</button>

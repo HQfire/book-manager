@@ -150,6 +150,10 @@ public class BookServiceImpl implements BookService {
         if (!author.isBlank()) {
             wrapper.like("author", author);
         }
+        String keyword = escapeLike(query.getKeyword());
+        if (!keyword.isBlank()) {
+            wrapper.and(w -> w.like("title", keyword).or().like("author", keyword));
+        }
         wrapper.orderByDesc("id");
 
         Long total = bookMapper.selectCount(wrapper);

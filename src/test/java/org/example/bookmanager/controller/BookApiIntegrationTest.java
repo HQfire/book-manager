@@ -202,6 +202,33 @@ class BookApiIntegrationTest {
     }
 
     @Test
+    void shouldMatchKeywordAgainstTitleOrAuthor() throws Exception {
+        String token = newUserToken();
+        createBook(token, "Alpha Title");
+        String body = OBJECT_MAPPER.writeValueAsString(Map.of(
+                "title", "Beta Title", "author", "UniqueAuthor", "description", "x"));
+        MvcResult result = mockMvc.perform(post("/api/books")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn();
+        createdBookIds.add(OBJECT_MAPPER.readTree(result.getResponse().getContentAsString())
+                .path("data").path("id").asLong());
+
+        mockMvc.perform(get("/api/books/page?keyword=Alpha")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1));
+
+        mockMvc.perform(get("/api/books/page?keyword=UniqueAuthor")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1));
+    }
+
+    @Test
     void shouldRevokeTokenAfterLogout() throws Exception {
         String token = newUserToken();
         mockMvc.perform(get("/api/books/page").header("Authorization", "Bearer " + token))
