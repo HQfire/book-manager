@@ -31,7 +31,7 @@ async function submit() {
         username: username.value.trim(),
         password: password.value,
       })
-      saveSession(data.token, data.username)
+      saveSession(data.token, data.username, data.refreshToken)
       emit('logged-in', { username: data.username })
     } else {
       await api.register({

@@ -22,5 +22,7 @@ public class BookText {
 
     private String content;
 
+    private String parseStatus;
+
     private LocalDateTime updatedAt;
 }

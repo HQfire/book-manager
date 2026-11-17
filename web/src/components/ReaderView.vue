@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import { t } from '../i18n.js'
 
@@ -43,6 +43,8 @@ watch(prefs, (value) => {
 const loading = ref(true)
 const error = ref('')
 const reader = ref(null)
+const parsePending = ref(false)
+const parseFailed = ref(false)
 const chapterIndex = ref(0)
 const settingsOpen = ref(false)
 const contentRef = ref(null)
@@ -50,6 +52,7 @@ const chapterCache = reactive({})
 const chapterLoading = ref(false)
 const chapterError = ref('')
 let loadSeq = 0
+let pollTimer = null
 
 const currentChapter = computed(() => chapterCache[chapterIndex.value] || null)
 
@@ -72,11 +75,34 @@ async function loadChapter(index) {
   }
 }
 
-async function loadReader() {
-  loading.value = true
+function clearPoll() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function refreshReader(initial) {
+  if (initial) {
+    loading.value = true
+  }
   error.value = ''
   try {
-    reader.value = await api.reader(props.bookId)
+    const data = await api.reader(props.bookId)
+    reader.value = data
+    const status = data.parseStatus || 'DONE'
+    if (status === 'PENDING') {
+      parsePending.value = true
+      parseFailed.value = false
+      clearPoll()
+      pollTimer = setTimeout(() => refreshReader(false), 2000)
+      return
+    }
+    parsePending.value = false
+    if (status === 'FAILED') {
+      parseFailed.value = true
+      return
+    }
     chapterIndex.value = 0
     Object.keys(chapterCache).forEach((key) => delete chapterCache[key])
     await nextTick()
@@ -89,6 +115,10 @@ async function loadReader() {
   await nextTick()
   if (contentRef.value) contentRef.value.scrollTop = 0
 }
+
+const loadReader = () => refreshReader(true)
+
+onUnmounted(clearPoll)
 
 watch(chapterIndex, async (index) => {
   await nextTick()
@@ -185,8 +215,10 @@ onMounted(loadReader)
 
       <div v-if="loading" class="reader-body muted">{{ t('reader_loading') }}</div>
       <p v-if="error" class="reader-body error">{{ error }}</p>
+      <div v-if="parsePending" class="reader-body muted">{{ t('parse_pending') }}</div>
+      <div v-if="parseFailed" class="reader-body error">{{ t('parse_failed') }}</div>
 
-      <div v-else-if="reader" class="reader-layout">
+      <div v-else-if="reader && !parsePending && !parseFailed" class="reader-layout">
         <aside v-show="prefs.tocOpen" class="toc">
           <div class="toc-title">{{ t('toc') }}（{{ reader.chapters.length }}）</div>
           <button

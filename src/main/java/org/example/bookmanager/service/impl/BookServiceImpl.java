@@ -3,6 +3,10 @@ package org.example.bookmanager.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.example.bookmanager.common.BizException;
 import org.example.bookmanager.common.PageResult;
 import org.example.bookmanager.dto.BookQueryRequest;
@@ -19,6 +23,8 @@ import org.example.bookmanager.mapper.BookCoverMapper;
 import org.example.bookmanager.mapper.BookMapper;
 import org.example.bookmanager.mapper.BookTextMapper;
 import org.example.bookmanager.service.BookService;
+import org.example.bookmanager.service.ChapterParseService;
+import org.example.bookmanager.service.ParseStatus;
 import org.example.bookmanager.util.ChapterParser;
 import org.example.bookmanager.util.TextEncodingUtil;
 import org.slf4j.Logger;
@@ -59,15 +65,31 @@ public class BookServiceImpl implements BookService {
     private final BookTextMapper textMapper;
     private final BookChapterMapper chapterMapper;
     private final RedisTemplate<String, String> redisTemplate;
+    private final ChapterParseService chapterParseService;
+    private final Counter cacheHit;
+    private final Counter cacheMiss;
+    private final Counter cacheEmpty;
+    private final Counter chapterLoaded;
+    private final Cache<Long, Object> localCache = Caffeine.newBuilder()
+            .maximumSize(100)
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .build();
 
     public BookServiceImpl(BookMapper bookMapper, BookCoverMapper coverMapper,
                            BookTextMapper textMapper, BookChapterMapper chapterMapper,
-                           RedisTemplate<String, String> redisTemplate) {
+                           RedisTemplate<String, String> redisTemplate,
+                           ChapterParseService chapterParseService,
+                           MeterRegistry meterRegistry) {
         this.bookMapper = bookMapper;
         this.coverMapper = coverMapper;
         this.textMapper = textMapper;
         this.chapterMapper = chapterMapper;
         this.redisTemplate = redisTemplate;
+        this.chapterParseService = chapterParseService;
+        this.cacheHit = meterRegistry.counter("book.cache.hit");
+        this.cacheMiss = meterRegistry.counter("book.cache.miss");
+        this.cacheEmpty = meterRegistry.counter("book.cache.empty");
+        this.chapterLoaded = meterRegistry.counter("book.chapter.loaded");
     }
 
     @Override
@@ -114,17 +136,34 @@ public class BookServiceImpl implements BookService {
 
     @Override
     public Book getById(Long id, Long currentUserId) {
+        Object local = localCache.getIfPresent(id);
+        if (local != null) {
+            if (NULL_MARKER.equals(local)) {
+                cacheEmpty.increment();
+                log.info("local cache null hit: book id={}", id);
+                throw new BizException(404, "book not found");
+            }
+            Book cachedBook = (Book) local;
+            checkOwnership(cachedBook, currentUserId);
+            cacheHit.increment();
+            log.info("local cache hit: book id={}", id);
+            return cachedBook;
+        }
+
         String key = CACHE_KEY_PREFIX + id;
         String cached = redisTemplate.opsForValue().get(key);
         if (cached != null) {
             if (NULL_MARKER.equals(cached)) {
-                log.info("cache null hit: book id={}", id);
+                cacheEmpty.increment();
+                log.info("redis cache null hit: book id={}", id);
                 throw new BizException(404, "book not found");
             }
             try {
                 Book cachedBook = MAPPER.readValue(cached, Book.class);
                 checkOwnership(cachedBook, currentUserId);
-                log.info("cache hit: book id={}", id);
+                localCache.put(id, cachedBook);
+                cacheHit.increment();
+                log.info("redis cache hit: book id={}", id);
                 return cachedBook;
             } catch (BizException e) {
                 throw e;
@@ -132,6 +171,7 @@ public class BookServiceImpl implements BookService {
                 log.warn("cache deserialization failed for book id={}, falling back to DB", id);
             }
         }
+        cacheMiss.increment();
         log.info("cache miss: book id={}", id);
 
         Book book = bookMapper.selectById(id);
@@ -189,6 +229,7 @@ public class BookServiceImpl implements BookService {
     }
 
     private void cacheBook(String key, Book book) {
+        localCache.put(book.getId(), book);
         long ttlMinutes = CACHE_TTL_MINUTES
                 + ThreadLocalRandom.current().nextLong(CACHE_TTL_JITTER_MINUTES + 1);
         try {
@@ -199,6 +240,7 @@ public class BookServiceImpl implements BookService {
     }
 
     private void cacheNull(String key) {
+        localCache.put(extractId(key), NULL_MARKER);
         try {
             redisTemplate.opsForValue().set(key, NULL_MARKER, NULL_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
         } catch (Exception e) {
@@ -207,7 +249,12 @@ public class BookServiceImpl implements BookService {
     }
 
     private void evictCache(Long id) {
+        localCache.invalidate(id);
         redisTemplate.delete(CACHE_KEY_PREFIX + id);
+    }
+
+    private Long extractId(String key) {
+        return Long.valueOf(key.substring(CACHE_KEY_PREFIX.length()));
     }
 
     private String escapeLike(String raw) {
@@ -251,13 +298,14 @@ public class BookServiceImpl implements BookService {
         entity.setEncoding(decoded.encoding());
         entity.setSize(file.getSize());
         entity.setContent(decoded.content());
+        entity.setParseStatus(ParseStatus.PENDING);
         if (insert) {
             textMapper.insert(entity);
         } else {
             textMapper.updateById(entity);
         }
-        replaceChapters(bookId, decoded.content());
-        log.info("text attached: bookId={}, fileName={}, encoding={}, size={}",
+        chapterParseService.parseChapters(bookId, decoded.content());
+        log.info("text attached, chapter parsing scheduled: bookId={}, fileName={}, encoding={}, size={}",
                 bookId, entity.getFileName(), entity.getEncoding(), entity.getSize());
     }
 
@@ -299,13 +347,17 @@ public class BookServiceImpl implements BookService {
         if (text == null || text.getContent() == null) {
             throw new BizException(404, "no text uploaded for this book");
         }
+        String status = text.getParseStatus() == null ? ParseStatus.DONE : text.getParseStatus();
+        if (ParseStatus.PENDING.equals(status) || ParseStatus.FAILED.equals(status)) {
+            return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), status, List.of());
+        }
         ensureChapters(bookId, text.getContent());
         List<BookChapter> rows = chapterMapper.selectList(
                 new QueryWrapper<BookChapter>().eq("book_id", bookId).orderByAsc("chapter_no"));
         List<ChapterToc> toc = rows.stream()
                 .map(row -> new ChapterToc(row.getChapterNo(), row.getTitle()))
                 .toList();
-        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), toc);
+        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), ParseStatus.DONE, toc);
     }
 
     @Override
@@ -316,6 +368,7 @@ public class BookServiceImpl implements BookService {
         if (row == null) {
             throw new BizException(404, "chapter not found");
         }
+        chapterLoaded.increment();
         return new ChapterContent(row.getChapterNo(), row.getTitle(), row.getContent());
     }
 

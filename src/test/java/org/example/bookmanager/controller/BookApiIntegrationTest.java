@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.bookmanager.entity.Book;
 import org.example.bookmanager.entity.UserAccount;
+import org.example.bookmanager.mapper.BookChapterMapper;
 import org.example.bookmanager.mapper.BookCoverMapper;
 import org.example.bookmanager.mapper.BookMapper;
 import org.example.bookmanager.mapper.BookTextMapper;
@@ -23,6 +24,7 @@ import org.springframework.mock.web.MockMultipartFile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -56,6 +58,9 @@ class BookApiIntegrationTest {
     private BookTextMapper textMapper;
 
     @Autowired
+    private BookChapterMapper chapterMapper;
+
+    @Autowired
     private UserAccountMapper userAccountMapper;
 
     @Autowired
@@ -81,7 +86,7 @@ class BookApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value(200));
     }
 
-    private String login(String username, String password) throws Exception {
+    private JsonNode loginJson(String username, String password) throws Exception {
         String body = OBJECT_MAPPER.writeValueAsString(Map.of("username", username, "password", password));
         MvcResult result = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -89,8 +94,11 @@ class BookApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andReturn();
-        JsonNode node = OBJECT_MAPPER.readTree(result.getResponse().getContentAsString());
-        return node.path("data").path("token").asText();
+        return OBJECT_MAPPER.readTree(result.getResponse().getContentAsString());
+    }
+
+    private String login(String username, String password) throws Exception {
+        return loginJson(username, password).path("data").path("token").asText();
     }
 
     private Long createBook(String token, String title) throws Exception {
@@ -271,6 +279,35 @@ class BookApiIntegrationTest {
     }
 
     @Test
+    void shouldRotateRefreshTokenAndRejectOldRefresh() throws Exception {
+        String username = "it_refresh_" + System.nanoTime();
+        createdUsernames.add(username);
+        register(username, "secret123");
+        JsonNode session = loginJson(username, "secret123");
+        String oldRefresh = session.path("data").path("refreshToken").asText();
+        assertFalse(oldRefresh.isBlank());
+
+        String refreshBody = OBJECT_MAPPER.writeValueAsString(Map.of("refreshToken", oldRefresh));
+        MvcResult refreshed = mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn();
+        JsonNode refreshedNode = OBJECT_MAPPER.readTree(refreshed.getResponse().getContentAsString());
+        String newRefresh = refreshedNode.path("data").path("refreshToken").asText();
+        assertFalse(newRefresh.isBlank());
+        assertNotEquals(oldRefresh, newRefresh);
+
+        String oldBody = OBJECT_MAPPER.writeValueAsString(Map.of("refreshToken", oldRefresh));
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oldBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
     void shouldCacheDetailAndEvictOnUpdate() throws Exception {
         String token = newUserToken();
         Long bookId = createBook(token, "Cache Probe");
@@ -331,12 +368,22 @@ class BookApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
-        MvcResult result = mockMvc.perform(get("/api/books/" + bookId + "/reader")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200))
-                .andReturn();
-        JsonNode node = OBJECT_MAPPER.readTree(result.getResponse().getContentAsString());
+        JsonNode node = null;
+        String status = "PENDING";
+        for (int i = 0; i < 20; i++) {
+            MvcResult result = mockMvc.perform(get("/api/books/" + bookId + "/reader")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andReturn();
+            node = OBJECT_MAPPER.readTree(result.getResponse().getContentAsString());
+            status = node.path("data").path("parseStatus").asText();
+            if (!"PENDING".equals(status)) {
+                break;
+            }
+            Thread.sleep(300);
+        }
+        assertEquals("DONE", status);
         assertEquals("UTF-8", node.path("data").path("encoding").asText());
         assertEquals(2, node.path("data").path("chapters").size());
         assertEquals("第一章 启程", node.path("data").path("chapters").get(0).path("title").asText());
@@ -408,6 +455,8 @@ class BookApiIntegrationTest {
             cacheKeys.clear();
         }
         if (!createdBookIds.isEmpty()) {
+            chapterMapper.delete(new QueryWrapper<org.example.bookmanager.entity.BookChapter>()
+                    .in("book_id", createdBookIds));
             coverMapper.deleteBatchIds(createdBookIds);
             textMapper.deleteBatchIds(createdBookIds);
             bookMapper.deleteBatchIds(createdBookIds);

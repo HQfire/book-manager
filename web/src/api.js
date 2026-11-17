@@ -1,23 +1,32 @@
 import { t } from './i18n.js'
 
 const TOKEN_KEY = 'bm_token'
+const REFRESH_KEY = 'bm_refresh'
 const USERNAME_KEY = 'bm_username'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY)
 }
 
+export function getRefreshToken() {
+  return localStorage.getItem(REFRESH_KEY)
+}
+
 export function getUsername() {
   return localStorage.getItem(USERNAME_KEY)
 }
 
-export function saveSession(token, username) {
+export function saveSession(token, username, refreshToken) {
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(USERNAME_KEY, username)
+  if (refreshToken) {
+    localStorage.setItem(REFRESH_KEY, refreshToken)
+  }
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REFRESH_KEY)
   localStorage.removeItem(USERNAME_KEY)
 }
 
@@ -48,9 +57,6 @@ function parseJson(response) {
 }
 
 function raiseFor(json) {
-  if (json.code === 401) {
-    clearSession()
-  }
   if (json.code !== 200) {
     const err = new Error(messageForCode(json.code, json.message))
     err.code = json.code
@@ -58,13 +64,34 @@ function raiseFor(json) {
   }
 }
 
-async function request(method, path, body) {
+async function tryRefresh() {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+  try {
+    const response = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    })
+    const json = await parseJson(response)
+    if (json.code !== 200 || !json.data?.token) return false
+    localStorage.setItem(TOKEN_KEY, json.data.token)
+    if (json.data.refreshToken) {
+      localStorage.setItem(REFRESH_KEY, json.data.refreshToken)
+    }
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
+async function doFetch(method, path, body, isJson, retried = false) {
   let response
   try {
     response = await fetch('/api' + path, {
       method,
-      headers: authHeaders(true),
-      body: body ? JSON.stringify(body) : undefined,
+      headers: authHeaders(isJson),
+      body: isJson && body ? JSON.stringify(body) : body,
     })
   } catch (e) {
     const err = new Error(t('error_network'))
@@ -73,29 +100,24 @@ async function request(method, path, body) {
   }
 
   const json = await parseJson(response)
+  if (json.code === 401 && !retried && (await tryRefresh())) {
+    return doFetch(method, path, body, isJson, true)
+  }
+  if (json.code === 401) {
+    clearSession()
+  }
   raiseFor(json)
   return json.data
+}
+
+async function request(method, path, body) {
+  return doFetch(method, path, body, true)
 }
 
 async function uploadFile(path, file) {
   const form = new FormData()
   form.append('file', file)
-  let response
-  try {
-    response = await fetch('/api' + path, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: form,
-    })
-  } catch (e) {
-    const err = new Error(t('error_network'))
-    err.code = 0
-    throw err
-  }
-
-  const json = await parseJson(response)
-  raiseFor(json)
-  return json.data
+  return doFetch('POST', path, form, false)
 }
 
 export async function fetchHealth() {
@@ -120,7 +142,8 @@ export async function fetchCoverBlob(id) {
 export const api = {
   register: (body) => request('POST', '/auth/register', body),
   login: (body) => request('POST', '/auth/login', body),
-  logout: () => request('POST', '/auth/logout'),
+  logout: () =>
+    request('POST', '/auth/logout', { refreshToken: getRefreshToken() }),
   createBook: (body) => request('POST', '/books', body),
   updateBook: (id, body) => request('PUT', `/books/${id}`, body),
   deleteBook: (id) => request('DELETE', `/books/${id}`),

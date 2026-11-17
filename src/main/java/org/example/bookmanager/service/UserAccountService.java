@@ -11,5 +11,7 @@ public interface UserAccountService {
 
     LoginResponse login(LoginRequest request);
 
-    void logout(String token);
+    LoginResponse refresh(String refreshToken);
+
+    void logout(String accessToken, String refreshToken);
 }
