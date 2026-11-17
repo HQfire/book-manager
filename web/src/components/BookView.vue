@@ -505,6 +505,7 @@ onMounted(loadBooks)
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100%;
   background: var(--card);
 }
 
@@ -537,6 +538,7 @@ onMounted(loadBooks)
 .card-body {
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 6px;
   padding: 12px 14px 14px;
 }
@@ -546,6 +548,11 @@ onMounted(loadBooks)
   font-weight: 600;
   text-align: left;
   line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
 }
 
 .card-author {
@@ -559,6 +566,7 @@ onMounted(loadBooks)
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 4.8em;
 }
 
 .card-time {
@@ -568,15 +576,11 @@ onMounted(loadBooks)
 .card-actions {
   display: flex;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: auto;
+  padding-top: 12px;
 }
 
 .card-actions .btn {
-  padding: 6px 10px;
-}
-
-.actions-col .btn {
-  margin-left: 8px;
   padding: 6px 10px;
 }
 
