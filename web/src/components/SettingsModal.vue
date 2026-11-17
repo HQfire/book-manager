@@ -43,6 +43,10 @@ const apiRoutes = [
   { module: 'book', method: 'DELETE', path: '/api/books/{id}' },
   { module: 'book', method: 'GET', path: '/api/books/{id}' },
   { module: 'book', method: 'GET', path: '/api/books/page' },
+  { module: 'book', method: 'POST', path: '/api/books/{id}/text' },
+  { module: 'book', method: 'POST', path: '/api/books/{id}/cover' },
+  { module: 'book', method: 'GET', path: '/api/books/{id}/reader' },
+  { module: 'book', method: 'GET', path: '/api/books/{id}/cover' },
 ]
 
 const systemInfo = [

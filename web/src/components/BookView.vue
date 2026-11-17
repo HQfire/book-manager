@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { api } from '../api.js'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { api, fetchCoverBlob } from '../api.js'
 import { t } from '../i18n.js'
 import SettingsModal from './SettingsModal.vue'
+import ReaderView from './ReaderView.vue'
 
 const settingsOpen = ref(false)
 
@@ -25,6 +26,11 @@ const message = ref('')
 const modalOpen = ref(false)
 const editingId = ref(null)
 const form = ref({ title: '', author: '', description: '' })
+
+const detailBook = ref(null)
+const detailReader = ref(null)
+const coverUrl = ref('')
+const readerOpen = ref(false)
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
@@ -95,6 +101,7 @@ async function removeBook(book) {
   try {
     await api.deleteBook(book.id)
     message.value = t('deleted')
+    closeDetail()
     loadBooks()
   } catch (e) {
     error.value = e.message
@@ -122,6 +129,81 @@ function logout() {
 function formatTime(value) {
   return value ? String(value).replace('T', ' ').slice(0, 16) : '-'
 }
+
+function formatSize(bytes) {
+  if (bytes == null) return '-'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function loadCover(bookId) {
+  if (coverUrl.value) {
+    URL.revokeObjectURL(coverUrl.value)
+    coverUrl.value = ''
+  }
+  try {
+    coverUrl.value = await fetchCoverBlob(bookId)
+  } catch {
+    coverUrl.value = ''
+  }
+}
+
+async function openDetail(book) {
+  detailBook.value = book
+  detailReader.value = null
+  error.value = ''
+  loadCover(book.id)
+  try {
+    detailReader.value = await api.reader(book.id)
+  } catch {
+    detailReader.value = null
+  }
+}
+
+function closeDetail() {
+  detailBook.value = null
+  detailReader.value = null
+  if (coverUrl.value) {
+    URL.revokeObjectURL(coverUrl.value)
+    coverUrl.value = ''
+  }
+}
+
+async function onCoverPick(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !detailBook.value) return
+  try {
+    await api.uploadCover(detailBook.value.id, file)
+    message.value = t('upload_success')
+    loadCover(detailBook.value.id)
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function onTextPick(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !detailBook.value) return
+  try {
+    await api.uploadText(detailBook.value.id, file)
+    message.value = t('upload_success')
+    detailReader.value = await api.reader(detailBook.value.id)
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+function openReader() {
+  if (!detailReader.value) return
+  readerOpen.value = true
+}
+
+onUnmounted(() => {
+  if (coverUrl.value) URL.revokeObjectURL(coverUrl.value)
+})
 
 onMounted(loadBooks)
 </script>
@@ -165,11 +247,14 @@ onMounted(loadBooks)
             <td colspan="5" class="muted empty">{{ t('empty') }}</td>
           </tr>
           <tr v-for="book in books" :key="book.id">
-            <td>{{ book.title }}</td>
+            <td>
+              <button class="link-btn" @click="openDetail(book)">{{ book.title }}</button>
+            </td>
             <td>{{ book.author || '-' }}</td>
             <td class="desc">{{ book.description || '-' }}</td>
             <td>{{ formatTime(book.updatedAt) }}</td>
             <td class="actions-col">
+              <button class="btn btn-secondary" @click="openDetail(book)">{{ t('detail') }}</button>
               <button class="btn btn-secondary" @click="openEdit(book)">{{ t('edit') }}</button>
               <button class="btn btn-danger" @click="removeBook(book)">{{ t('delete') }}</button>
             </td>
@@ -208,6 +293,52 @@ onMounted(loadBooks)
         </div>
       </div>
     </div>
+
+    <div v-if="detailBook" class="modal-mask" @click.self="closeDetail">
+      <div class="card modal detail-modal">
+        <h2>{{ t('about_book') }}</h2>
+        <div class="detail-body">
+          <div class="detail-cover">
+            <img v-if="coverUrl" :src="coverUrl" :alt="detailBook.title" />
+            <div v-else class="cover-placeholder">{{ t('no_cover') }}</div>
+          </div>
+          <div class="detail-info">
+            <h3>{{ detailBook.title }}</h3>
+            <p class="muted">{{ detailBook.author || '-' }}</p>
+            <p class="detail-desc">{{ detailBook.description || '-' }}</p>
+            <div class="meta-row" v-if="detailReader">
+              <span>{{ t('text_file') }}：{{ detailReader.fileName || '-' }}</span>
+              <span>{{ t('encoding') }}：{{ detailReader.encoding }}</span>
+              <span>{{ t('file_size') }}：{{ formatSize(detailReader.size) }}</span>
+              <span>{{ t('chapter_count') }}：{{ detailReader.chapters.length }}</span>
+            </div>
+            <p v-else class="muted">{{ t('no_text') }}</p>
+          </div>
+        </div>
+        <p v-if="error" class="error">{{ error }}</p>
+        <div class="detail-actions">
+          <label class="btn btn-secondary file-btn">
+            {{ t('upload_cover') }}
+            <input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onCoverPick" />
+          </label>
+          <label class="btn btn-secondary file-btn">
+            {{ t('upload_text') }}
+            <input type="file" accept=".txt,.md" hidden @change="onTextPick" />
+          </label>
+          <button class="btn btn-primary" :disabled="!detailReader" @click="openReader">{{ t('read') }}</button>
+          <button class="btn btn-secondary" @click="openEdit(detailBook); closeDetail()">{{ t('edit') }}</button>
+          <button class="btn btn-danger" @click="removeBook(detailBook)">{{ t('delete') }}</button>
+          <button class="btn btn-secondary" @click="closeDetail">{{ t('close') }}</button>
+        </div>
+      </div>
+    </div>
+
+    <ReaderView
+      v-if="readerOpen"
+      :book-id="detailBook.id"
+      :book-title="detailBook.title"
+      @close="readerOpen = false"
+    />
 
     <SettingsModal :open="settingsOpen" :username="props.username" @close="settingsOpen = false" />
   </div>
@@ -291,6 +422,15 @@ th {
   padding: 6px 10px;
 }
 
+.link-btn {
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+}
+
 .empty {
   text-align: center;
   padding: 32px 0;
@@ -314,6 +454,7 @@ th {
   display: flex;
   justify-content: center;
   align-items: center;
+  z-index: 20;
 }
 
 .modal {
@@ -329,5 +470,72 @@ th {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.detail-modal {
+  width: 620px;
+}
+
+.detail-body {
+  display: flex;
+  gap: 20px;
+}
+
+.detail-cover {
+  width: 150px;
+  flex-shrink: 0;
+}
+
+.detail-cover img {
+  width: 150px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.cover-placeholder {
+  width: 150px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-info h3 {
+  margin: 0 0 6px;
+}
+
+.detail-desc {
+  white-space: pre-wrap;
+}
+
+.meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>

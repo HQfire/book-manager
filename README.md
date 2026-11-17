@@ -20,7 +20,7 @@
 
 - JDK 17
 - Maven 3.9+
-- 本地 MySQL 服务，已创建数据库 `book_manager`（建表脚本见 `db/schema.sql`）
+- 本地 MySQL 服务，已创建数据库 `book_manager`（新库执行 `db/schema.sql`；存量库按顺序执行 `db/migration-02-index.sql`、`db/migration-03-attachments.sql`）
 - 本地 Redis，默认 `127.0.0.1:6379`；开发用免安装 Redis 位于 `D:\tools\redis`，启动：
 
 ```
@@ -84,6 +84,15 @@ npm run dev
 | GET | `/api/books/{id}` | 图书详情（走 Redis 缓存） |
 | GET | `/api/books/page` | 分页条件查询，参数：`title`、`author`、`pageNum`、`pageSize` |
 
+### 附件与阅读器（需 token）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/books/{id}/text` | 上传 txt/md 纯文本（≤2MB），自动识别 UTF-8、GB18030、UTF-16 编码后解码入库 |
+| POST | `/api/books/{id}/cover` | 上传封面图片（png/jpeg/webp，≤2MB，BLOB 入库） |
+| GET | `/api/books/{id}/reader` | 阅读器数据：文件名、编码、大小、章节列表与正文 |
+| GET | `/api/books/{id}/cover` | 封面图片字节流，需在请求头携带 token |
+
 当前登录用户由 token 解析得到，请求体与查询参数不再传入 `userId`；图书不属于当前用户时返回 403。
 
 统一返回结构：
@@ -117,10 +126,10 @@ src/main/java/org/example/bookmanager
 ├── config      # 拦截器注册、鉴权拦截器、TraceId 过滤器
 ├── controller  # AuthController、BookController、HelloController
 ├── dto         # 请求与响应对象
-├── entity      # UserAccount、Book
+├── entity      # UserAccount、Book、BookCover、BookText
 ├── mapper      # MyBatis-Plus Mapper
 ├── service     # 业务接口、实现与 token 黑名单服务
-└── util        # 密码哈希、JWT 工具
+└── util        # 密码哈希、JWT、编码探测、章节切分工具
 ```
 
 ## 当前边界（未实现，避免在简历中夸大）
@@ -129,5 +138,7 @@ src/main/java/org/example/bookmanager
 - 无 token 刷新机制，过期后需重新登录；登出黑名单基于单实例 Redis，重启后黑名单失效；
 - 分页为手写 `LIMIT` 条件查询，未使用 MP 分页插件，深分页仍有 offset 性能代价；
 - 缓存仅本地单实例 Redis，已做空值短 TTL 防穿透、TTL 抖动防雪崩，未做集群、二级缓存与热点 key 互斥重建；
+- 文本仅支持 txt/md 纯文本，不解析 epub/pdf；封面与正文均存 MySQL BLOB/LONGTEXT，未做对象存储；
+- 章节切分为常见中文/英文标题正则启发式识别，复杂排版小说可能漏分；阅读器外观偏好仅存浏览器 localStorage；
 - 前端为本地 Vite 开发工程，未打包部署到服务器；
 - 未接入消息队列、分布式部署与云端上线。

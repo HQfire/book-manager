@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.bookmanager.entity.Book;
 import org.example.bookmanager.entity.UserAccount;
+import org.example.bookmanager.mapper.BookCoverMapper;
 import org.example.bookmanager.mapper.BookMapper;
+import org.example.bookmanager.mapper.BookTextMapper;
 import org.example.bookmanager.mapper.UserAccountMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -16,10 +18,14 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.mock.web.MockMultipartFile;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +48,12 @@ class BookApiIntegrationTest {
 
     @Autowired
     private BookMapper bookMapper;
+
+    @Autowired
+    private BookCoverMapper coverMapper;
+
+    @Autowired
+    private BookTextMapper textMapper;
 
     @Autowired
     private UserAccountMapper userAccountMapper;
@@ -252,6 +264,82 @@ class BookApiIntegrationTest {
                 .andExpect(jsonPath("$.data.pageSize").value(50));
     }
 
+    @Test
+    void shouldUploadTextAndParseChapters() throws Exception {
+        String token = newUserToken();
+        Long bookId = createBook(token, "Reader Probe");
+        String content = "第一章 启程\n少年走进森林。\n\n第二章 归途\n少年回到村庄。";
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "sample.txt", "text/plain", content.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/books/" + bookId + "/text")
+                        .file(file)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        MvcResult result = mockMvc.perform(get("/api/books/" + bookId + "/reader")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn();
+        JsonNode node = OBJECT_MAPPER.readTree(result.getResponse().getContentAsString());
+        assertEquals("UTF-8", node.path("data").path("encoding").asText());
+        assertEquals(2, node.path("data").path("chapters").size());
+        assertEquals("第一章 启程", node.path("data").path("chapters").get(0).path("title").asText());
+    }
+
+    @Test
+    void shouldUploadCoverAndReturnBytes() throws Exception {
+        String token = newUserToken();
+        Long bookId = createBook(token, "Cover Probe");
+        byte[] pngBytes = new byte[]{1, 2, 3, 4};
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "cover.png", "image/png", pngBytes);
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/books/" + bookId + "/cover")
+                        .file(file)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        MvcResult result = mockMvc.perform(get("/api/books/" + bookId + "/cover")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertEquals("image/png", result.getResponse().getContentType());
+        assertEquals(pngBytes.length, result.getResponse().getContentAsByteArray().length);
+    }
+
+    @Test
+    void shouldRejectUnsupportedTextExtension() throws Exception {
+        String token = newUserToken();
+        Long bookId = createBook(token, "Bad Extension");
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "evil.exe", "application/octet-stream", new byte[]{1, 2, 3});
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/books/" + bookId + "/text")
+                        .file(file)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void shouldRejectCrossUserAttachmentUpload() throws Exception {
+        String ownerToken = newUserToken();
+        String otherToken = newUserToken();
+        Long bookId = createBook(ownerToken, "Owned Attachment");
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "sample.txt", "text/plain", "content".getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/books/" + bookId + "/text")
+                        .file(file)
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
     @AfterEach
     void cleanup() {
         if (!cacheKeys.isEmpty()) {
@@ -259,6 +347,8 @@ class BookApiIntegrationTest {
             cacheKeys.clear();
         }
         if (!createdBookIds.isEmpty()) {
+            coverMapper.deleteBatchIds(createdBookIds);
+            textMapper.deleteBatchIds(createdBookIds);
             bookMapper.deleteBatchIds(createdBookIds);
             createdBookIds.clear();
         }

@@ -27,32 +27,27 @@ function messageForCode(code, fallback) {
   return mapped === key ? fallback || t('error_network') : mapped
 }
 
-async function request(method, path, body) {
-  const headers = { 'Content-Type': 'application/json' }
+function authHeaders(json = false) {
+  const headers = {}
   const token = getToken()
   if (token) {
     headers.Authorization = 'Bearer ' + token
   }
-
-  let response
-  try {
-    response = await fetch('/api' + path, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    })
-  } catch (e) {
-    const err = new Error(t('error_network'))
-    err.code = 0
-    throw err
+  if (json) {
+    headers['Content-Type'] = 'application/json'
   }
+  return headers
+}
 
-  const json = await response.json().catch(() => ({
+function parseJson(response) {
+  return response.json().catch(() => ({
     code: response.status,
     message: response.statusText,
     data: null,
   }))
+}
 
+function raiseFor(json) {
   if (json.code === 401) {
     clearSession()
   }
@@ -61,12 +56,61 @@ async function request(method, path, body) {
     err.code = json.code
     throw err
   }
+}
+
+async function request(method, path, body) {
+  let response
+  try {
+    response = await fetch('/api' + path, {
+      method,
+      headers: authHeaders(true),
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (e) {
+    const err = new Error(t('error_network'))
+    err.code = 0
+    throw err
+  }
+
+  const json = await parseJson(response)
+  raiseFor(json)
+  return json.data
+}
+
+async function uploadFile(path, file) {
+  const form = new FormData()
+  form.append('file', file)
+  let response
+  try {
+    response = await fetch('/api' + path, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    })
+  } catch (e) {
+    const err = new Error(t('error_network'))
+    err.code = 0
+    throw err
+  }
+
+  const json = await parseJson(response)
+  raiseFor(json)
   return json.data
 }
 
 export async function fetchHealth() {
   const response = await fetch('/actuator/health')
   return response.json()
+}
+
+export async function fetchCoverBlob(id) {
+  const response = await fetch(`/api/books/${id}/cover`, {
+    headers: authHeaders(),
+  })
+  if (!response.ok) {
+    throw new Error(t('error_404'))
+  }
+  return URL.createObjectURL(await response.blob())
 }
 
 export const api = {
@@ -82,4 +126,7 @@ export const api = {
     ).toString()
     return request('GET', `/books/page?${query}`)
   },
+  uploadText: (id, file) => uploadFile(`/books/${id}/text`, file),
+  uploadCover: (id, file) => uploadFile(`/books/${id}/cover`, file),
+  reader: (id) => request('GET', `/books/${id}/reader`),
 }

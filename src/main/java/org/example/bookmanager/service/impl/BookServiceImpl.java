@@ -7,16 +7,25 @@ import org.example.bookmanager.common.BizException;
 import org.example.bookmanager.common.PageResult;
 import org.example.bookmanager.dto.BookQueryRequest;
 import org.example.bookmanager.dto.BookSaveRequest;
+import org.example.bookmanager.dto.ReaderDTO;
 import org.example.bookmanager.entity.Book;
+import org.example.bookmanager.entity.BookCover;
+import org.example.bookmanager.entity.BookText;
+import org.example.bookmanager.mapper.BookCoverMapper;
 import org.example.bookmanager.mapper.BookMapper;
+import org.example.bookmanager.mapper.BookTextMapper;
 import org.example.bookmanager.service.BookService;
+import org.example.bookmanager.util.ChapterParser;
+import org.example.bookmanager.util.TextEncodingUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -31,14 +40,23 @@ public class BookServiceImpl implements BookService {
     private static final String NULL_MARKER = "__NULL_BOOK__";
     private static final int DEFAULT_PAGE_SIZE = 10;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final long MAX_TEXT_SIZE = 2L * 1024 * 1024;
+    private static final long MAX_COVER_SIZE = 2L * 1024 * 1024;
+    private static final Set<String> TEXT_EXTENSIONS = Set.of("txt", "md");
+    private static final Set<String> COVER_MIMES = Set.of("image/png", "image/jpeg", "image/webp");
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private final BookMapper bookMapper;
+    private final BookCoverMapper coverMapper;
+    private final BookTextMapper textMapper;
     private final RedisTemplate<String, String> redisTemplate;
 
-    public BookServiceImpl(BookMapper bookMapper, RedisTemplate<String, String> redisTemplate) {
+    public BookServiceImpl(BookMapper bookMapper, BookCoverMapper coverMapper,
+                           BookTextMapper textMapper, RedisTemplate<String, String> redisTemplate) {
         this.bookMapper = bookMapper;
+        this.coverMapper = coverMapper;
+        this.textMapper = textMapper;
         this.redisTemplate = redisTemplate;
     }
 
@@ -77,6 +95,8 @@ public class BookServiceImpl implements BookService {
     public void delete(Long id, Long currentUserId) {
         loadOwnedBook(id, currentUserId);
         bookMapper.deleteById(id);
+        coverMapper.deleteById(id);
+        textMapper.deleteById(id);
         evictCache(id);
         log.info("book deleted: id={}, userId={}", id, currentUserId);
     }
@@ -182,5 +202,121 @@ public class BookServiceImpl implements BookService {
                 .replace("\\", "\\\\")
                 .replace("%", "\\%")
                 .replace("_", "\\_");
+    }
+
+    @Override
+    @Transactional
+    public void attachText(Long bookId, Long currentUserId, MultipartFile file) {
+        loadOwnedBook(bookId, currentUserId);
+        validateTextFile(file);
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (Exception e) {
+            throw new BizException(400, "failed to read uploaded text file");
+        }
+        TextEncodingUtil.Decoded decoded = TextEncodingUtil.decode(bytes);
+
+        BookText entity = textMapper.selectById(bookId);
+        boolean insert = entity == null;
+        if (insert) {
+            entity = new BookText();
+            entity.setBookId(bookId);
+        }
+        entity.setFileName(file.getOriginalFilename());
+        entity.setEncoding(decoded.encoding());
+        entity.setSize(file.getSize());
+        entity.setContent(decoded.content());
+        if (insert) {
+            textMapper.insert(entity);
+        } else {
+            textMapper.updateById(entity);
+        }
+        log.info("text attached: bookId={}, fileName={}, encoding={}, size={}",
+                bookId, entity.getFileName(), entity.getEncoding(), entity.getSize());
+    }
+
+    @Override
+    @Transactional
+    public void attachCover(Long bookId, Long currentUserId, MultipartFile file) {
+        loadOwnedBook(bookId, currentUserId);
+        validateCoverFile(file);
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (Exception e) {
+            throw new BizException(400, "failed to read uploaded cover");
+        }
+
+        BookCover entity = coverMapper.selectById(bookId);
+        boolean insert = entity == null;
+        if (insert) {
+            entity = new BookCover();
+            entity.setBookId(bookId);
+        }
+        entity.setFileName(file.getOriginalFilename());
+        entity.setMime(file.getContentType());
+        entity.setSize(file.getSize());
+        entity.setData(bytes);
+        if (insert) {
+            coverMapper.insert(entity);
+        } else {
+            coverMapper.updateById(entity);
+        }
+        log.info("cover attached: bookId={}, fileName={}, mime={}, size={}",
+                bookId, entity.getFileName(), entity.getMime(), entity.getSize());
+    }
+
+    @Override
+    public ReaderDTO getReader(Long bookId, Long currentUserId) {
+        loadOwnedBook(bookId, currentUserId);
+        BookText text = textMapper.selectById(bookId);
+        if (text == null || text.getContent() == null) {
+            throw new BizException(404, "no text uploaded for this book");
+        }
+        List<ChapterParser.Chapter> chapters = ChapterParser.parse(text.getContent());
+        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), chapters);
+    }
+
+    @Override
+    public BookCover getCover(Long bookId, Long currentUserId) {
+        loadOwnedBook(bookId, currentUserId);
+        BookCover cover = coverMapper.selectById(bookId);
+        if (cover == null || cover.getData() == null) {
+            throw new BizException(404, "cover not found");
+        }
+        return cover;
+    }
+
+    private void validateTextFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BizException(400, "text file is required");
+        }
+        if (!TEXT_EXTENSIONS.contains(extensionOf(file.getOriginalFilename()))) {
+            throw new BizException(400, "only txt and md plain text files are supported");
+        }
+        if (file.getSize() > MAX_TEXT_SIZE) {
+            throw new BizException(400, "text file exceeds 2MB limit");
+        }
+    }
+
+    private void validateCoverFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BizException(400, "cover image is required");
+        }
+        if (!COVER_MIMES.contains(file.getContentType())) {
+            throw new BizException(400, "only png, jpg and webp cover images are supported");
+        }
+        if (file.getSize() > MAX_COVER_SIZE) {
+            throw new BizException(400, "cover image exceeds 2MB limit");
+        }
+    }
+
+    private String extensionOf(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        int dot = fileName.lastIndexOf('.');
+        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
     }
 }

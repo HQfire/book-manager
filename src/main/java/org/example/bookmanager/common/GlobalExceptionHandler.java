@@ -6,6 +6,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -24,6 +26,18 @@ public class GlobalExceptionHandler {
         String message = fieldError == null ? "validation failed" : fieldError.getDefaultMessage();
         log.warn("validation failed: {}", message);
         return Result.fail(400, message);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public Result<Void> handleUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("upload size exceeded: {}", e.getMessage());
+        return Result.fail(400, "uploaded file exceeds size limit");
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public Result<Void> handleMultipart(MultipartException e) {
+        log.warn("multipart error: {}", e.getMessage());
+        return Result.fail(400, "invalid multipart request");
     }
 
     @ExceptionHandler(Exception.class)
