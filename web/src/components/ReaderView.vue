@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api.js'
 import { t } from '../i18n.js'
 
@@ -44,6 +44,7 @@ const error = ref('')
 const reader = ref(null)
 const chapterIndex = ref(0)
 const settingsOpen = ref(false)
+const contentRef = ref(null)
 
 const currentChapter = computed(() => {
   const chapters = reader.value?.chapters || []
@@ -63,9 +64,22 @@ async function loadReader() {
   } finally {
     loading.value = false
   }
+  await nextTick()
+  if (contentRef.value) contentRef.value.scrollTop = 0
 }
 
+watch(chapterIndex, async () => {
+  await nextTick()
+  if (contentRef.value) contentRef.value.scrollTop = 0
+})
+
 function selectChapter(index) {
+  if (chapterIndex.value === index) {
+    nextTick(() => {
+      if (contentRef.value) contentRef.value.scrollTop = 0
+    })
+    return
+  }
   chapterIndex.value = index
 }
 
@@ -159,6 +173,7 @@ onMounted(loadReader)
         </aside>
 
         <main
+          ref="contentRef"
           class="reader-content"
           :style="{
             fontFamily,
