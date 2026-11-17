@@ -290,40 +290,26 @@ onMounted(loadBooks)
     <p v-if="error" class="error">{{ error }}</p>
     <p v-if="message" class="muted message">{{ message }}</p>
 
-    <section class="card table-card">
-      <table>
-        <thead>
-          <tr>
-            <th>{{ t('col_cover') }}</th>
-            <th>{{ t('col_title') }}</th>
-            <th>{{ t('col_author') }}</th>
-            <th>{{ t('col_desc') }}</th>
-            <th>{{ t('col_updated') }}</th>
-            <th class="actions-col">{{ t('col_actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="books.length === 0 && !loading">
-            <td colspan="6" class="muted empty">{{ t('empty') }}</td>
-          </tr>
-          <tr v-for="book in books" :key="book.id">
-            <td class="cover-cell">
-              <img v-if="rowCovers[book.id]" :src="rowCovers[book.id]" :alt="book.title" />
-              <div v-else class="row-placeholder">{{ t('no_cover') }}</div>
-            </td>
-            <td>
-              <button class="link-btn" @click="openDetail(book)">{{ book.title }}</button>
-            </td>
-            <td>{{ book.author || '-' }}</td>
-            <td class="desc">{{ book.description || '-' }}</td>
-            <td>{{ formatTime(book.updatedAt) }}</td>
-            <td class="actions-col">
+    <section class="card list-card">
+      <div v-if="books.length === 0 && !loading" class="muted empty">{{ t('empty') }}</div>
+      <div v-else class="book-grid">
+        <div v-for="book in books" :key="book.id" class="book-card">
+          <div class="card-cover">
+            <img v-if="rowCovers[book.id]" :src="rowCovers[book.id]" :alt="book.title" />
+            <div v-else class="card-placeholder">{{ t('no_cover') }}</div>
+          </div>
+          <div class="card-body">
+            <button class="card-title link-btn" @click="openDetail(book)">{{ book.title }}</button>
+            <p class="card-author muted">{{ book.author || '-' }}</p>
+            <p class="card-desc">{{ book.description || '-' }}</p>
+            <p class="card-time muted">{{ formatTime(book.updatedAt) }}</p>
+            <div class="card-actions">
               <button class="btn btn-secondary" @click="openDetail(book)">{{ t('detail') }}</button>
               <button class="btn btn-primary" @click="readBook(book)">{{ t('read') }}</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="pagination">
         <button class="btn btn-secondary" :disabled="pageNum <= 1" @click="prevPage">{{ t('prev') }}</button>
@@ -472,59 +458,90 @@ onMounted(loadBooks)
   width: 160px;
 }
 
-.table-card {
-  padding: 8px 20px 16px;
+.list-card {
+  padding: 20px;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 20px;
 }
 
-th,
-td {
-  text-align: left;
-  padding: 12px 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-th {
-  color: var(--text-muted);
-  font-weight: 500;
-  font-size: 13px;
-}
-
-.desc {
-  max-width: 260px;
-}
-
-.cover-cell {
-  width: 64px;
-}
-
-.cover-cell img,
-.row-placeholder {
-  width: 44px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: var(--radius);
+.book-card {
   border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
 }
 
-.row-placeholder {
+.card-cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: #f3f4f6;
+}
+
+.card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.card-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-style: dashed;
+  border-bottom: 1px dashed var(--border);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
-  padding: 4px;
+  padding: 8px;
 }
 
-.actions-col {
-  white-space: nowrap;
-  text-align: right;
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 14px;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.card-author {
+  font-size: 13px;
+}
+
+.card-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-time {
+  font-size: 12px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.card-actions .btn {
+  padding: 6px 10px;
 }
 
 .actions-col .btn {
