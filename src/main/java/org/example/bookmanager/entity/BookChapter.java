@@ -20,8 +20,6 @@ public class BookChapter {
 
     private String title;
 
-    private String volumeTitle;
-
     private String content;
 
     private LocalDateTime createdAt;

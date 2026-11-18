@@ -20,7 +20,7 @@
 
 - JDK 17
 - Maven 3.9+
-- 本地 MySQL 服务，已创建数据库 `book_manager`（新库执行 `db/schema.sql`；存量库按顺序执行 `db/migration-02-index.sql`、`db/migration-03-attachments.sql`）
+- 本地 MySQL 服务，已创建数据库 `book_manager`（新库执行 `db/schema.sql`；存量库按顺序执行 `db/migration-02-index.sql`、`db/migration-03-attachments.sql`、`db/migration-04-chapters.sql`、`db/migration-05-fulltext.sql`、`db/migration-06-parse-status.sql`）
 - 本地 Redis，默认 `127.0.0.1:6379`；开发用免安装 Redis 位于 `D:\tools\redis`，启动：
 
 ```
@@ -74,8 +74,9 @@ npm run dev
 | 方法 | 路径 | 说明 | 请求体 |
 |---|---|---|---|
 | POST | `/api/auth/register` | 注册 | `{"username": "...", "password": "..."}` |
-| POST | `/api/auth/login` | 登录，返回 JWT | `{"username": "...", "password": "..."}` |
-| POST | `/api/auth/logout` | 登出，将当前 token 的 `jti` 写入 Redis 黑名单 | 请求头携带 `Authorization: Bearer <token>` |
+| POST | `/api/auth/login` | 登录，返回 JWT 与 refresh token | `{"username": "...", "password": "..."}` |
+| POST | `/api/auth/refresh` | 用 refresh token 换取新的 access token（轮换并作废旧 refresh token） | `{"refreshToken": "..."}` |
+| POST | `/api/auth/logout` | 登出，将当前 token 的 `jti` 与 refresh token 写入 Redis 黑名单 | 请求头携带 `Authorization: Bearer <token>` |
 
 登录成功返回：
 
@@ -146,7 +147,7 @@ src/main/java/org/example/bookmanager
 ## 当前边界（未实现，避免在简历中夸大）
 
 - 鉴权为轻量拦截器 + JJWT，未引入完整 Spring Security 过滤器链；
-- 无 token 刷新机制，过期后需重新登录；登出黑名单基于单实例 Redis，重启后黑名单失效；
+- 采用 access token（120 分钟）+ refresh token（7 天）双令牌，刷新时轮换并作废旧 refresh token；登出将 access jti 与 refresh token 写入单实例 Redis，重启后黑名单与已存 refresh token 失效；
 - 分页为手写 `LIMIT` 条件查询，未使用 MP 分页插件，深分页仍有 offset 性能代价；
 - 缓存仅本地单实例 Redis，已做空值短 TTL 防穿透、TTL 抖动防雪崩，未做集群、二级缓存与热点 key 互斥重建；
 - 文本仅支持 txt/md 纯文本，不解析 epub/pdf；封面与正文均存 MySQL BLOB/LONGTEXT，未做对象存储；

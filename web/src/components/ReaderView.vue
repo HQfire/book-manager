@@ -51,21 +51,12 @@ const contentRef = ref(null)
 const chapterCache = reactive({})
 const chapterLoading = ref(false)
 const chapterError = ref('')
-const expandedVolumes = ref(new Set())
 let loadSeq = 0
 let pollTimer = null
 
 const currentChapter = computed(() => chapterCache[chapterIndex.value] || null)
 
 const fontFamily = computed(() => FAMILIES[prefs.family] || FAMILIES.serif)
-
-const tocGroups = computed(() => {
-  const volumes = reader.value?.volumes || []
-  if (volumes.length) return volumes
-  return [{ title: '', chapters: reader.value?.chapters || [] }]
-})
-
-const groupedVolumes = computed(() => (reader.value?.volumes || []).length > 0)
 
 async function loadChapter(index) {
   if (chapterCache[index]) return
@@ -97,28 +88,6 @@ function prefetchNeighbors(index) {
   }
 }
 
-function toggleVolume(groupIndex) {
-  const next = new Set(expandedVolumes.value)
-  if (next.has(groupIndex)) {
-    next.delete(groupIndex)
-  } else {
-    next.add(groupIndex)
-  }
-  expandedVolumes.value = next
-}
-
-function expandVolumeOfChapter(chapterIdx) {
-  tocGroups.value.forEach((group, groupIndex) => {
-    if (!group.title) return
-    const contains = group.chapters.some((chapter) => chapter.index === chapterIdx)
-    if (contains) {
-      const next = new Set(expandedVolumes.value)
-      next.add(groupIndex)
-      expandedVolumes.value = next
-    }
-  })
-}
-
 function clearPoll() {
   if (pollTimer) {
     clearTimeout(pollTimer)
@@ -148,11 +117,9 @@ async function refreshReader(initial) {
       return
     }
     chapterIndex.value = 0
-    expandedVolumes.value = new Set()
     Object.keys(chapterCache).forEach((key) => delete chapterCache[key])
     await nextTick()
     await loadChapter(0)
-    expandVolumeOfChapter(0)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -169,7 +136,6 @@ onUnmounted(clearPoll)
 watch(chapterIndex, async (index) => {
   await nextTick()
   if (contentRef.value) contentRef.value.scrollTop = 0
-  expandVolumeOfChapter(index)
   await loadChapter(index)
 })
 
@@ -268,28 +234,15 @@ onMounted(loadReader)
       <div v-else-if="reader && !parsePending && !parseFailed" class="reader-layout">
         <aside v-show="prefs.tocOpen" class="toc">
           <div class="toc-title">{{ t('toc') }}（{{ reader.chapters.length }}）</div>
-          <template v-for="(group, groupIndex) in tocGroups" :key="groupIndex">
-            <button
-              v-if="group.title || groupedVolumes"
-              class="toc-volume"
-              @click="toggleVolume(groupIndex)"
-            >
-              <span class="toc-volume-arrow">{{ expandedVolumes.has(groupIndex) ? '▾' : '▸' }}</span>
-              <span class="toc-volume-title">{{ group.title || t('main_volume') }}</span>
-              <span class="muted toc-volume-count">{{ group.chapters.length }}</span>
-            </button>
-            <template v-if="!groupedVolumes || expandedVolumes.has(groupIndex)">
-              <button
-                v-for="chapter in group.chapters"
-                :key="chapter.index"
-                class="toc-item"
-                :class="{ active: chapter.index === chapterIndex, child: !!group.title }"
-                @click="selectChapter(chapter.index)"
-              >
-                {{ chapter.title }}
-              </button>
-            </template>
-          </template>
+          <button
+            v-for="chapter in reader.chapters"
+            :key="chapter.index"
+            class="toc-item"
+            :class="{ active: chapter.index === chapterIndex }"
+            @click="selectChapter(chapter.index)"
+          >
+            {{ chapter.title }}
+          </button>
         </aside>
 
         <main
@@ -442,44 +395,6 @@ onMounted(loadReader)
 .toc-item.active,
 .toc-item:hover {
   background: #f3f4f6;
-}
-
-.toc-item.child {
-  padding-left: 32px;
-}
-
-.toc-volume {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: transparent;
-  padding: 9px 16px;
-  cursor: pointer;
-  color: var(--text);
-  font-weight: 600;
-}
-
-.toc-volume:hover {
-  background: #f3f4f6;
-}
-
-.toc-volume-arrow {
-  width: 12px;
-  color: var(--text-muted);
-}
-
-.toc-volume-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.toc-volume-count {
-  font-size: 12px;
 }
 
 .reader-content {

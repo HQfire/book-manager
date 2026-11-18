@@ -35,7 +35,6 @@ public class ChapterParseService {
                 row.setBookId(bookId);
                 row.setChapterNo(chapter.index());
                 row.setTitle(chapter.title());
-                row.setVolumeTitle(chapter.volumeTitle());
                 row.setContent(chapter.content());
                 chapterMapper.insert(row);
             }
