@@ -61,6 +61,28 @@ class ChapterParserTest {
     }
 
     @Test
+    void splitsCombinedVolumeAndChapterHeading() {
+        String text = "第一卷 第1话 相遇\n少年相遇。\n\n第一卷 第2话 同行\n两人同行。\n\n第二卷 第1话 分别\n少年离去。";
+        List<Chapter> chapters = ChapterParser.parse(text);
+        assertEquals(3, chapters.size());
+        assertEquals("第一卷", chapters.get(0).volumeTitle());
+        assertEquals("第一卷", chapters.get(1).volumeTitle());
+        assertEquals("第二卷", chapters.get(2).volumeTitle());
+        assertEquals("第一卷 第1话 相遇", chapters.get(0).title());
+        assertTrue(chapters.get(0).content().contains("少年相遇"));
+        assertTrue(chapters.get(2).content().contains("少年离去"));
+    }
+
+    @Test
+    void keepsSpecialMarkerAsChapterUnderVolume() {
+        String text = "第一卷 序章\n前言内容。\n\n第一卷 幕间 插曲\n插曲正文。";
+        List<Chapter> chapters = ChapterParser.parse(text);
+        assertEquals(2, chapters.size());
+        assertEquals("第一卷", chapters.get(0).volumeTitle());
+        assertEquals("第一卷 幕间 插曲", chapters.get(1).title());
+    }
+
+    @Test
     void flatTextHasNoVolume() {
         String text = "第一章 启程\n正文内容。";
         List<Chapter> chapters = ChapterParser.parse(text);

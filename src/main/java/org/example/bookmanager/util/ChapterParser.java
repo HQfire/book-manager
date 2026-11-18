@@ -7,12 +7,17 @@ import java.util.regex.Pattern;
 
 public final class ChapterParser {
 
-    private static final Pattern VOLUME = Pattern.compile(
-            "^第\\s*[0-9零一二三四五六七八九十百千]+\\s*[卷巻册][^\\n]{0,40}");
+    private static final Pattern VOLUME_PREFIX = Pattern.compile(
+            "^(第\\s*[0-9零一二三四五六七八九十百千]+\\s*[卷巻册])\\b(.*)$");
 
-    private static final Pattern CHAPTER = Pattern.compile(
-            "^(?:第\\s*[0-9零一二三四五六七八九十百千]+\\s*[章节回话幕回][^\\n]{0,40}"
-                    + "|Chapter\\s+\\d+[^\\n]{0,40})",
+    private static final String CHAPTER_BODY =
+            "(?:第\\s*[0-9零一二三四五六七八九十百千]+\\s*[章节回话幕回][^\\n]{0,40}"
+                    + "|Chapter\\s+\\d+[^\\n]{0,40}"
+                    + "|(?:序章|序幕|终章|番外篇|番外|特典|后记|幕间|短篇|Intermission)[^\\n]{0,40})";
+
+    private static final Pattern CHAPTER = Pattern.compile(CHAPTER_BODY, Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern CHAPTER_START = Pattern.compile("^" + CHAPTER_BODY,
             Pattern.CASE_INSENSITIVE);
 
     private ChapterParser() {
@@ -36,8 +41,28 @@ public final class ChapterParser {
 
         for (String line : lines) {
             String trimmed = line.trim();
-            Matcher volumeMatcher = VOLUME.matcher(trimmed);
-            if (volumeMatcher.find()) {
+            Matcher volumeMatcher = VOLUME_PREFIX.matcher(trimmed);
+            boolean hasVolumePrefix = volumeMatcher.find();
+            boolean chapterHeading;
+            if (hasVolumePrefix) {
+                String rest = volumeMatcher.group(2).trim();
+                chapterHeading = CHAPTER.matcher(rest).find();
+            } else {
+                chapterHeading = CHAPTER_START.matcher(trimmed).find();
+            }
+
+            if (chapterHeading) {
+                if (currentTitle != null) {
+                    chapters.add(build(chapters.size(), currentTitle, currentVolume, currentBody.toString()));
+                } else if (currentBody.toString().trim().length() > 0 && prologue.isEmpty()) {
+                    prologue = currentBody.toString().trim();
+                }
+                if (hasVolumePrefix) {
+                    currentVolume = volumeMatcher.group(1).trim();
+                }
+                currentTitle = trimmed;
+                currentBody = new StringBuilder();
+            } else if (hasVolumePrefix) {
                 if (currentTitle != null) {
                     chapters.add(build(chapters.size(), currentTitle, currentVolume, currentBody.toString()));
                 } else if (currentBody.toString().trim().length() > 0) {
@@ -45,18 +70,6 @@ public final class ChapterParser {
                 }
                 currentVolume = trimmed;
                 currentTitle = null;
-                currentBody = new StringBuilder();
-                continue;
-            }
-
-            Matcher chapterMatcher = CHAPTER.matcher(trimmed);
-            if (chapterMatcher.find()) {
-                if (currentTitle != null) {
-                    chapters.add(build(chapters.size(), currentTitle, currentVolume, currentBody.toString()));
-                } else if (currentBody.toString().trim().length() > 0 && prologue.isEmpty()) {
-                    prologue = currentBody.toString().trim();
-                }
-                currentTitle = trimmed;
                 currentBody = new StringBuilder();
             } else {
                 currentBody.append(line).append("\n");
