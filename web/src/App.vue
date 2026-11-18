@@ -1,11 +1,19 @@
 <script setup>
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import AuthView from './components/AuthView.vue'
 import BookView from './components/BookView.vue'
-import { api, clearSession, getToken, getUsername } from './api.js'
+import { api, clearSession, getToken, getUsername, onAuthExpired } from './api.js'
 
 const token = ref(getToken())
 const username = ref(getUsername() || '')
+
+let offAuthExpired = null
+
+function resetSession() {
+  clearSession()
+  token.value = ''
+  username.value = ''
+}
 
 function onLogin(payload) {
   token.value = getToken()
@@ -18,10 +26,16 @@ async function onLogout() {
   } catch (e) {
     // ignore logout failure, local session is cleared below
   }
-  clearSession()
-  token.value = ''
-  username.value = ''
+  resetSession()
 }
+
+onMounted(() => {
+  offAuthExpired = onAuthExpired(resetSession)
+})
+
+onUnmounted(() => {
+  if (offAuthExpired) offAuthExpired()
+})
 </script>
 
 <template>

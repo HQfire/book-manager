@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChapterParserTest {
@@ -45,5 +46,25 @@ class ChapterParserTest {
         List<Chapter> chapters = ChapterParser.parse(text);
         assertEquals(2, chapters.size());
         assertEquals("Chapter 1 Start", chapters.get(0).title());
+    }
+
+    @Test
+    void groupsChaptersUnderVolumes() {
+        String text = "第一卷 启程篇\n第一章 相遇\n少年相遇。\n\n第二章 同行\n两人同行。\n\n第二卷 旅途篇\n第三章 分别\n少年离去。";
+        List<Chapter> chapters = ChapterParser.parse(text);
+        assertEquals(3, chapters.size());
+        assertEquals("第一卷 启程篇", chapters.get(0).volumeTitle());
+        assertEquals("第一卷 启程篇", chapters.get(1).volumeTitle());
+        assertEquals("第二卷 旅途篇", chapters.get(2).volumeTitle());
+        assertEquals("第一章 相遇", chapters.get(0).title());
+        assertTrue(chapters.get(0).content().contains("少年相遇"));
+    }
+
+    @Test
+    void flatTextHasNoVolume() {
+        String text = "第一章 启程\n正文内容。";
+        List<Chapter> chapters = ChapterParser.parse(text);
+        assertEquals(1, chapters.size());
+        assertNull(chapters.get(0).volumeTitle());
     }
 }

@@ -27,6 +27,17 @@
 D:\tools\redis\redis-server.exe --port 6379 --bind 127.0.0.1
 ```
 
+## 一键启动（Windows）
+
+双击仓库根目录的 `dev-start.bat`（或运行 `python dev-start.py`）即可，`web/node_modules` 已安装后脚本自动完成整条链路：
+
+- MySQL（3306）：未运行时先尝试启动 `MySQL95` 服务，失败则回退直接拉起 mysqld；就绪后自动创建 `book_manager` 库，空库时导入 `db/schema.sql` 建表；
+- Redis（6379）、后端（8080）、前端（5173）依次拉起，并等待端口与健康检查通过；
+- 前端就绪后自动用系统默认浏览器打开 http://localhost:5173；
+- 日志写入 `logs/`（`mysql.log`、`redis.log`、`backend.log`、`frontend.log`）。
+
+说明：`MySQL95` 为开机自启服务。若服务被手动停止，非管理员直接拉起 mysqld 可能因数据目录权限失败；此时在管理员终端执行 `net start MySQL95` 后再运行本脚本即可。
+
 ## 启动后端
 
 1. 启动 MySQL 与 Redis；

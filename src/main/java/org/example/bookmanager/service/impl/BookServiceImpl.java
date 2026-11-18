@@ -14,6 +14,7 @@ import org.example.bookmanager.dto.BookSaveRequest;
 import org.example.bookmanager.dto.ChapterContent;
 import org.example.bookmanager.dto.ChapterToc;
 import org.example.bookmanager.dto.ReaderDTO;
+import org.example.bookmanager.dto.VolumeToc;
 import org.example.bookmanager.entity.Book;
 import org.example.bookmanager.entity.BookChapter;
 import org.example.bookmanager.entity.BookCover;
@@ -37,7 +38,10 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -349,7 +353,7 @@ public class BookServiceImpl implements BookService {
         }
         String status = text.getParseStatus() == null ? ParseStatus.DONE : text.getParseStatus();
         if (ParseStatus.PENDING.equals(status) || ParseStatus.FAILED.equals(status)) {
-            return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), status, List.of());
+            return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), status, List.of(), List.of());
         }
         ensureChapters(bookId, text.getContent());
         List<BookChapter> rows = chapterMapper.selectList(
@@ -357,7 +361,25 @@ public class BookServiceImpl implements BookService {
         List<ChapterToc> toc = rows.stream()
                 .map(row -> new ChapterToc(row.getChapterNo(), row.getTitle()))
                 .toList();
-        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), ParseStatus.DONE, toc);
+        List<VolumeToc> volumes = groupByVolume(rows);
+        return new ReaderDTO(text.getFileName(), text.getEncoding(), text.getSize(), ParseStatus.DONE, toc, volumes);
+    }
+
+    private List<VolumeToc> groupByVolume(List<BookChapter> rows) {
+        boolean hasVolume = rows.stream()
+                .anyMatch(row -> row.getVolumeTitle() != null && !row.getVolumeTitle().isBlank());
+        if (!hasVolume) {
+            return List.of();
+        }
+        Map<String, List<ChapterToc>> grouped = new LinkedHashMap<>();
+        for (BookChapter row : rows) {
+            String key = row.getVolumeTitle() == null ? "" : row.getVolumeTitle();
+            ChapterToc toc = new ChapterToc(row.getChapterNo(), row.getTitle());
+            grouped.computeIfAbsent(key, ignored -> new ArrayList<>()).add(toc);
+        }
+        return grouped.entrySet().stream()
+                .map(entry -> new VolumeToc(entry.getKey(), entry.getValue()))
+                .toList();
     }
 
     @Override
@@ -380,6 +402,7 @@ public class BookServiceImpl implements BookService {
             row.setBookId(bookId);
             row.setChapterNo(chapter.index());
             row.setTitle(chapter.title());
+            row.setVolumeTitle(chapter.volumeTitle());
             row.setContent(chapter.content());
             chapterMapper.insert(row);
         }

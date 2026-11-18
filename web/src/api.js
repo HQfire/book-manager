@@ -30,6 +30,17 @@ export function clearSession() {
   localStorage.removeItem(USERNAME_KEY)
 }
 
+const expiredListeners = new Set()
+
+export function onAuthExpired(handler) {
+  expiredListeners.add(handler)
+  return () => expiredListeners.delete(handler)
+}
+
+function notifyAuthExpired() {
+  expiredListeners.forEach((handler) => handler())
+}
+
 function messageForCode(code, fallback) {
   const key = `error_${code}`
   const mapped = t(key)
@@ -105,6 +116,9 @@ async function doFetch(method, path, body, isJson, retried = false) {
   }
   if (json.code === 401) {
     clearSession()
+    if (!path.startsWith('/auth/')) {
+      notifyAuthExpired()
+    }
   }
   raiseFor(json)
   return json.data

@@ -386,6 +386,7 @@ class BookApiIntegrationTest {
         assertEquals("DONE", status);
         assertEquals("UTF-8", node.path("data").path("encoding").asText());
         assertEquals(2, node.path("data").path("chapters").size());
+        assertEquals(0, node.path("data").path("volumes").size());
         assertEquals("第一章 启程", node.path("data").path("chapters").get(0).path("title").asText());
 
         MvcResult chapterResult = mockMvc.perform(get("/api/books/" + bookId + "/chapters/0")
@@ -395,6 +396,43 @@ class BookApiIntegrationTest {
                 .andReturn();
         JsonNode chapter = OBJECT_MAPPER.readTree(chapterResult.getResponse().getContentAsString());
         assertTrue(chapter.path("data").path("content").asText().contains("少年走进森林"));
+    }
+
+    @Test
+    void shouldGroupChaptersByVolume() throws Exception {
+        String token = newUserToken();
+        Long bookId = createBook(token, "Volume Probe");
+        String content = "第一卷 启程篇\n第一章 相遇\n少年相遇。\n\n第二章 同行\n两人同行。\n\n第二卷 旅途篇\n第三章 分别\n少年离去。";
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "light-novel.txt", "text/plain", content.getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/books/" + bookId + "/text")
+                        .file(file)
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        JsonNode node = null;
+        String status = "PENDING";
+        for (int i = 0; i < 20; i++) {
+            MvcResult result = mockMvc.perform(get("/api/books/" + bookId + "/reader")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andReturn();
+            node = OBJECT_MAPPER.readTree(result.getResponse().getContentAsString());
+            status = node.path("data").path("parseStatus").asText();
+            if (!"PENDING".equals(status)) {
+                break;
+            }
+            Thread.sleep(300);
+        }
+        assertEquals("DONE", status);
+        assertEquals(3, node.path("data").path("chapters").size());
+        assertEquals(2, node.path("data").path("volumes").size());
+        assertEquals("第一卷 启程篇", node.path("data").path("volumes").get(0).path("title").asText());
+        assertEquals(2, node.path("data").path("volumes").get(0).path("chapters").size());
+        assertEquals("第二卷 旅途篇", node.path("data").path("volumes").get(1).path("title").asText());
     }
 
     @Test

@@ -11,33 +11,44 @@ const mode = ref('login')
 const username = ref('')
 const password = ref('')
 const error = ref('')
+const success = ref('')
 const loading = ref(false)
 
 function switchMode(next) {
   mode.value = next
   error.value = ''
+  success.value = ''
 }
 
 async function submit() {
   error.value = ''
-  if (!username.value.trim() || !password.value) {
+  success.value = ''
+  const name = username.value.trim()
+  if (!name || !password.value) {
     error.value = t('required_account')
+    return
+  }
+  if (mode.value === 'register' && (password.value.length < 6 || password.value.length > 32)) {
+    error.value = t('password_short')
     return
   }
   loading.value = true
   try {
     if (mode.value === 'login') {
       const data = await api.login({
-        username: username.value.trim(),
+        username: name,
         password: password.value,
       })
       saveSession(data.token, data.username, data.refreshToken)
+      success.value = t('login_success')
+      await new Promise((resolve) => setTimeout(resolve, 500))
       emit('logged-in', { username: data.username })
     } else {
       await api.register({
-        username: username.value.trim(),
+        username: name,
         password: password.value,
       })
+      success.value = t('register_success')
       mode.value = 'login'
       password.value = ''
       error.value = ''
@@ -96,6 +107,7 @@ async function submit() {
           />
         </div>
 
+        <p v-if="success" class="success">{{ success }}</p>
         <p v-if="error" class="error">{{ error }}</p>
 
         <button class="btn btn-primary submit-btn" type="submit" :disabled="loading">
@@ -158,5 +170,10 @@ async function submit() {
 
 .submit-btn {
   width: 100%;
+}
+
+.success {
+  color: #16a34a;
+  margin: 10px 0;
 }
 </style>
